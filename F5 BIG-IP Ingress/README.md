@@ -1,4 +1,4 @@
-# F5 Ingress VKS Deployment
+# F5 Ingress on VKS Deployment
 
 This repository contains the example manifests, Helm values, and supporting configuration used in the **F5 BIG-IP Container Ingress Services on vSphere Kubernetes Service** white paper.
 
