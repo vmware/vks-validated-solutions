@@ -1,4 +1,4 @@
-# VKS Validated Solutions & ISV Integrations
+# VMware vSphere Kubernetes Service (VKS) Validated Solutions & ISV Integrations
 
 ## Overview
 
