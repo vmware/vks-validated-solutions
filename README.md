@@ -45,13 +45,13 @@ git clone https://github.com/your-org/vks-validated-solutions.git
 cd vks-validated-solutions
 ```
 
-1. **Navigate to the target integration:**
+2. **Navigate to the target integration:**
 
 ```bash
 cd kong/  # Replace with your target partner directory
 ```
 
-1. **Deploy the solution:**
+3. **Deploy the solution:**
 
 Follow the deployment instructions detailed in the partner-specific `README.md`. 
 
@@ -62,16 +62,16 @@ Follow the deployment instructions detailed in the partner-specific `README.md`.
 We welcome contributions from ISVs and internal engineering teams. To maintain the integrity of these validated solutions, please adhere to the following workflow when introducing a new partner integration:
 
 1. **Branching:** Fork the repository and create a feature branch (`feature/add-partner-name`).
-1. **Directory Initialization:** Create a new root-level directory using a standardized, lowercase naming convention (e.g., `partner-name`).
-1. **Artifact Guidelines:**
+2. **Directory Initialization:** Create a new root-level directory using a standardized, lowercase naming convention (e.g., `partner-name`).
+3. **Artifact Guidelines:**
 - Include all necessary deployment artifacts in a `manifests/` or `charts/` subdirectory.
 - Ensure manifests are linted and compatible with supported Kubernetes versions.
-1. **Documentation:** You must include a local `README.md` within the partner directory. This document should cover:
+4. **Documentation:** You must include a local `README.md` within the partner directory. This document should cover:
 - Architecture overview on VKS.
 - Prerequisites and dependencies.
 - Step-by-step deployment instructions.
 - Validation and testing steps.
-1. **Pull Request:** Submit a PR against the `main` branch. Ensure your commit messages are descriptive and link to any relevant issue trackers.
+5. **Pull Request:** Submit a PR against the `main` branch. Ensure your commit messages are descriptive and link to any relevant issue trackers.
 
 -----
 
