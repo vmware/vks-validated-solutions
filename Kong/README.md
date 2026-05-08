@@ -1,6 +1,6 @@
 # Kong VKS Deployment
 
-This repository contains the example manifests, Helm values, and supporting configuration used in the Kong on VKS white paper.
+This repository contains the example manifests, Helm values, and supporting configuration used in the **Kong on vSphere Kubernetes Service** white paper.
 
 White paper:
 https://www.vmware.com/docs/isv-kong-vks
