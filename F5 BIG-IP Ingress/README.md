@@ -8,7 +8,7 @@ https://www.vmware.com/docs/isv-f5-vks
 ## Versions
 * VCF 9.0.1
 * vSphere Kubernetes 3.6.0 / VKR 1.35.0
-* F5 Infrastructure: BIG-IP v17 or v21, CIS v2.20.3, and AS3 v3.56.0.
+* F5 Infrastructure: BIG-IP v17 or v21, CIS v2.20.3, and AS3 v3.56.0. (VM, Appliance or Chassis)
 
 ## References
 * [vSphere Supervisor Platform](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/vsphere-supervisor-installation-and-configuration.html)
