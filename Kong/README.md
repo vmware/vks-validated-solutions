@@ -17,11 +17,6 @@ https://www.vmware.com/docs/isv-kong-vks
 * [Kong Operator Configuration Options](https://developer.konghq.com/operator/reference/configuration-options/)
 
 
-## Get Files 
-```shell
-git clone https://github.com/cleeistaken/kong-k8s-testing.git
-```
-
 ## Deployment Procedure
 
 * [Step 1. Configure Supervisor](1_CONFIGURE_SUPERVISOR.md)
