@@ -1,5 +1,10 @@
 # Kong VKS Deployment
 
+This repository contains the example manifests, Helm values, and supporting configuration used in the Kong on VKS white paper.
+
+White paper:
+https://www.vmware.com/docs/isv-kong-vks
+
 ## Versions
 * Kong Operator 2.0.6
 * vSphere Kubernetes 3.5 / VKr 1.34
