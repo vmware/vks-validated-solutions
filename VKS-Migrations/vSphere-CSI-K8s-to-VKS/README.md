@@ -16,6 +16,8 @@ Source PV
 vCenter FCD
 ```
 
+<br>
+
 VKS clusters use a modified using a para-virtualized version of the CSI driver. Each VKS PVC points to a Supervisor PVC, which in turn binds to a Supervisor PV with the FCD UUID as the volumeHandle:
  
 ``` 
