@@ -1,4 +1,4 @@
-# Quick S3 endpoint on VKS (for testing)
+# Quick S3 endpoint on VKS (for testing) using noobaa
 
 
 ## first install the cli (tested on Ubuntu Jammy)
