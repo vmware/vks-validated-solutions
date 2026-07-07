@@ -60,7 +60,7 @@ alias sup='kubectl --kubeconfig=${SUPERVISOR_KUBECONFIG}'
 ######
 # 2. Create Snapshot of the source PVC:
 ######
-
+```
 export SNAPSHOT_CLASS=$(
   oa get volumesnapshotclasses.snapshot.storage.k8s.io \
     | awk '/vsphere/{print $1; exit}'
@@ -82,42 +82,46 @@ oa -n ${SOURCE_NS} wait \
   --for=jsonpath='{.status.readyToUse}'=true \
   volumesnapshot/${PVC_NAME}-snapshot \
   --timeout=1800s
-
+```
 
 
 ######
 # 3. Create Velero backup and restore to from the S3 endpoint
 ######
 
-# create velero backup
+## create velero backup
+```
 velero backup create ${SOURCE_NS}-backup-${UUID} \
   --kubeconfig=${OCP_KUBECONFIG} \
   --include-namespaces ${SOURCE_NS} \
   --include-cluster-resources=false \
   --snapshot-volumes=false
-
-# check velero backup
+```
+## check velero backup
+```
 velero backup describe ${SOURCE_NS}-backup-${UUID} \
   --kubeconfig=${OCP_KUBECONFIG} \
   --insecure-skip-tls-verify
-
+```
 
 ### --> WAIT until backup is 'complete' <---
 
-# create velero restore
+## create velero restore
+```
 velero restore create ${TARGET_NS}-restore-${UUID} \
   --kubeconfig=${VKS_KUBECONFIG} \
   --from-backup ${SOURCE_NS}-backup-${UUID} \
   --namespace-mappings ${SOURCE_NS}:${TARGET_NS} \
   --exclude-resources persistentvolumeclaims
-
-# check velero restore
+```
+## check velero restore
+```
 velero restore describe ${TARGET_NS}-restore-${UUID} \
   --kubeconfig=${VKS_KUBECONFIG} \
   --insecure-skip-tls-verify
-
-# inspect the target namespace
-vks -n ${TARGET_NS} get all,pvc
+```
+## inspect the target namespace
+`vks -n ${TARGET_NS} get all,pvc`
 
 
 
