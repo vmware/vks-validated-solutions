@@ -5,7 +5,7 @@
 ### 1. We have access to the OCP cluster, the Supervisor and VKS is available
 ### 2. We have access to an S3 endpoint
 ### 3. Velero is installed on both OCP and VKS
-### 4. The OC command line is installed
+### 4. The Openshift command line (oc) is installed locally
 
 
 
