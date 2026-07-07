@@ -33,7 +33,9 @@ Supervisor PV
 vCenter FCD
 ```
 
+##
 ## Using `CnsRegisterVolume` CRD to adopt a volume
+
 
 The `CnsRegisterVolume` CRD can be invoked to create a Supervisor PV/PVC pair from a vCenter FCD if none exists:
 
