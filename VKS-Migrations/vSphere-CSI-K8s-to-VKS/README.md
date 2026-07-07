@@ -131,6 +131,7 @@ velero restore create ${TARGET_NS}-restore-${UUID} \
   --exclude-resources persistentvolumeclaims
 ```
 
+The full migration path is therefore a two-pronged approach:
 
 ```
     Manifest path                           Storage adoption path
@@ -191,9 +192,13 @@ velero restore create ${TARGET_NS}-restore-${UUID} \
 +---------------------------------------------------------------+
 ```
 
+Note this is simplified as here we have not captured any PVC/PV labels.
+
 
 ## Repository Structure
 
+```
 ├── OCP-VKS-migration-example.md      # Worked example from Openshift to VKS
 ├── quick-s3-endpoint-for-testing     # Example of a quick S3 endpoint on VKS using `noobaa`
 └── README.md                         # Repository root documentation
+```
