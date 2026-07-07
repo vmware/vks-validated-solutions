@@ -3,13 +3,10 @@
 #
 
 #
-# Here we assume:
-# 1. We have access to the OCP cluster,
-# the Supervisor and VKS is available.
-#
-# 2. We have access to an S3 endpoint.
-#
-# 3. Velero is installed on both OCP and VKS
+## Here we assume:
+### 1. We have access to the OCP cluster, the Supervisor and VKS is available.
+### 2. We have access to an S3 endpoint.
+### 3. Velero is installed on both OCP and VKS
 #
 # 4. The following tools are installed:
 # 'oc' The Openshift command line
