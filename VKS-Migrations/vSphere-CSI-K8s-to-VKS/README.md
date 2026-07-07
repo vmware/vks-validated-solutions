@@ -51,6 +51,7 @@ Source PV
 vCenter FCD [2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1]
 ```
 
+<br>
 We can invoke the CRD to capture the FCD thus:
 
 ```
@@ -65,6 +66,7 @@ spec:
   accessMode: ReadWriteOnce
 ```
 
+<br>
 This takes the FCD with UUID `2c5999e4...` and creates a Supervisor PVC named `data-volume-adopted`
 
 ```
@@ -77,7 +79,7 @@ New Supervisor PV
     ▼
 vCenter FCD [2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1]
 ```
-
+<br>
 This new Supervisor PVC can then be employed by a VKS cluster by creating a new VKS PV object and pointing the CSI `volumeHandle` to the Supervisor PVC:
 
 ```
@@ -109,8 +111,10 @@ New Supervisor PV
     ▼
 vCenter FCD [2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1]
 ```
-
+<br>
 No data copy ever takes place.
+
+<br>
 
 ## Using Velero to copy manifest data
 
@@ -124,7 +128,7 @@ velero backup create ${BACKUP_NAME} \
   --snapshot-volumes=false \
   --exclude-resources=persistentvolumes
 ```
-
+<br>
 And then restore to the destination cluster, again, excluding PVs
 
 ```
@@ -134,7 +138,7 @@ velero restore create ${TARGET_NS}-restore-${UUID} \
   --namespace-mappings ${SOURCE_NS}:${TARGET_NS} \
   --exclude-resources persistentvolumeclaims
 ```
-
+<br>
 The full migration path is therefore a two-pronged approach:
 
 ```
@@ -195,9 +199,10 @@ The full migration path is therefore a two-pronged approach:
 | Restored app pod mounts PVC_NAME and uses the adopted FCD     |
 +---------------------------------------------------------------+
 ```
-
+<br>
 Note this is simplified as here we have not captured any PVC/PV labels.
 
+<br>
 
 ## Repository Structure
 
