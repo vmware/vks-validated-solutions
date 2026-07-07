@@ -89,7 +89,7 @@ oa -n ${SOURCE_NS} wait \
 # 3. Create Velero backup and restore (to/from the S3 endpoint)
 ######
 
-## create velero backup
+## Create velero backup
 ```
 velero backup create ${SOURCE_NS}-backup-${UUID} \
   --kubeconfig=${OCP_KUBECONFIG} \
@@ -97,7 +97,7 @@ velero backup create ${SOURCE_NS}-backup-${UUID} \
   --include-cluster-resources=false \
   --snapshot-volumes=false
 ```
-## check velero backup
+## Check velero backup
 ```
 velero backup describe ${SOURCE_NS}-backup-${UUID} \
   --kubeconfig=${OCP_KUBECONFIG} \
@@ -106,7 +106,7 @@ velero backup describe ${SOURCE_NS}-backup-${UUID} \
 
 ### --> WAIT until backup is 'complete' <---
 
-## create velero restore
+## Create velero restore
 ```
 velero restore create ${TARGET_NS}-restore-${UUID} \
   --kubeconfig=${VKS_KUBECONFIG} \
@@ -114,13 +114,13 @@ velero restore create ${TARGET_NS}-restore-${UUID} \
   --namespace-mappings ${SOURCE_NS}:${TARGET_NS} \
   --exclude-resources persistentvolumeclaims
 ```
-## check velero restore
+## Check velero restore
 ```
 velero restore describe ${TARGET_NS}-restore-${UUID} \
   --kubeconfig=${VKS_KUBECONFIG} \
   --insecure-skip-tls-verify
 ```
-## inspect the target namespace
+## Inspect the target namespace
 `vks -n ${TARGET_NS} get all,pvc`
 
 
@@ -130,28 +130,28 @@ velero restore describe ${TARGET_NS}-restore-${UUID} \
 # 5. Zero-copy PVC adoption
 ######
 
-## get the underlying PV name from OCP
+## Get the underlying PV name from OCP
 ```
 export PV_NAME=$(
   oa -n ${SOURCE_NS} get pvc ${PVC_NAME} \
     -o jsonpath='{.spec.volumeName}'
 )
 ```
-## get the CSI volume handle
+## Get the CSI volume handle
 ```
 export VOL_HANDLE=$(
   oa get pv ${PV_NAME} \
     -o jsonpath='{.spec.csi.volumeHandle}'
 )
 ```
-## set the PV to retain on delete
+## Set the PV to retain on delete
 ```
 oa patch pv $PV_NAME -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
 
 echo "PV: ${PV_NAME}"
 echo "FCD/CNS volume handle: ${VOL_HANDLE}"
 ```
-## scale the source to zero and delte the source PVC
+## Scale the source to zero and delte the source PVC
 ```
 echo "Scaling deployment to 0..."
 oa -n $SOURCE_NS scale deploy --replicas 0 --all
@@ -162,7 +162,7 @@ oa -n $SOURCE_NS wait --for=condition=available=false deploy/<deployment-name> -
 echo "Pods are gone. Deleting PVC..."
 oa delete pvc $PVC_NAME
 ```
-## register the volume on the supervisor this will create the corresponding supervisor PV and PVC
+## Register the volume on the supervisor this will create the corresponding supervisor PV and PVC
 ```
 sup apply -f - << EOF
 apiVersion: cns.vmware.com/v1alpha1
@@ -176,13 +176,13 @@ spec:
   pvcName: "${PV_NAME}-migrated"
 EOF
 ```
-## check the registration... should be 'true'
+## Check the registration... should be 'true'
 `sup get cnsregistervolumes.cns.vmware.com -o json | jq -r '.items[].status.registered'`
 
-## check the supervisor PVC
+## Check the supervisor PVC
 `sup get pvc ${PV_NAME}-migrated`
 
-## adopt the FCD in VKS by creating a PV with the volume handle pointing to the Supervisor PVC, also create a PVC 
+## Adopt the FCD in VKS by creating a PV with the volume handle pointing to the Supervisor PVC, also create a PVC 
 ```
 vks apply -f - <<EOF
 apiVersion: v1
@@ -225,7 +225,7 @@ vks -n ${TARGET_NS} get pvc ${PVC_NAME} -o json | jq -r '.items[].metadata.annot
 # 6. Source clean-up or restore 
 ######
 
-## once data is confirmed, remove the finalizer from the PV and delete it
+## Once data is confirmed, remove the finalizer from the PV and delete it
 ```
 oa patch pv ${PV_NAME} \
   --type=json \
