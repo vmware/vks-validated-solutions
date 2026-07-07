@@ -225,17 +225,18 @@ vks -n ${TARGET_NS} get pvc ${PVC_NAME} -o json | jq -r '.items[].metadata.annot
 # 6. Source clean-up or restore 
 ######
 
-# once data is confirmed, remove the finalizer
-# from the PV and delete it
+## once data is confirmed, remove the finalizer from the PV and delete it
+```
 oa patch pv ${PV_NAME} \
   --type=json \
   -p='[{"op":"remove","path":"/metadata/finalizers"}]'
 
 oa delete pv ${PV_NAME}
+```
 
+## If adoption failed, create a clone from the snapshot and PV handle on OCP
 
-# If adoption failed, create a clone from the snapshot and PV handle on OCP
-
+```
 oa apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -259,5 +260,6 @@ oa -n ${SOURCE_NS} wait \
   --for=jsonpath='{.status.phase}'=Bound \
   pvc/${PVC_NAME}-clone \
   --timeout=1800s
+  ```
 
 
