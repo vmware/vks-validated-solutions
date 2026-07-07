@@ -86,7 +86,7 @@ oa -n ${SOURCE_NS} wait \
 
 
 ######
-# 3. Create Velero backup and restore to from the S3 endpoint
+# 3. Create Velero backup and restore (to/from the S3 endpoint)
 ######
 
 ## create velero backup
@@ -130,25 +130,29 @@ velero restore describe ${TARGET_NS}-restore-${UUID} \
 # 5. Zero-copy PVC adoption
 ######
 
-# get the underlying PV name from OCP
+## get the underlying PV name from OCP
+```
 export PV_NAME=$(
   oa -n ${SOURCE_NS} get pvc ${PVC_NAME} \
     -o jsonpath='{.spec.volumeName}'
 )
-
-# get the CSI volume handle
+```
+## get the CSI volume handle
+```
 export VOL_HANDLE=$(
   oa get pv ${PV_NAME} \
     -o jsonpath='{.spec.csi.volumeHandle}'
 )
-
-# set the PV to retain on delete
+```
+## set the PV to retain on delete
+```
 oa patch pv $PV_NAME -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
 
 echo "PV: ${PV_NAME}"
 echo "FCD/CNS volume handle: ${VOL_HANDLE}"
-
-# scale the source to zero and delte the source PVC
+```
+## scale the source to zero and delte the source PVC
+```
 echo "Scaling deployment to 0..."
 oa -n $SOURCE_NS scale deploy --replicas 0 --all
 
@@ -157,10 +161,9 @@ oa -n $SOURCE_NS wait --for=condition=available=false deploy/<deployment-name> -
 
 echo "Pods are gone. Deleting PVC..."
 oa delete pvc $PVC_NAME
-
-# register the volume on the supervisor
-# this will create the corresponding
-# supervisor PV and PVC
+```
+## register the volume on the supervisor this will create the corresponding supervisor PV and PVC
+```
 sup apply -f - << EOF
 apiVersion: cns.vmware.com/v1alpha1
 kind: CnsRegisterVolume
@@ -172,16 +175,15 @@ spec:
   accessMode: ReadWriteOnce
   pvcName: "${PV_NAME}-migrated"
 EOF
+```
+## check the registration... should be 'true'
+`sup get cnsregistervolumes.cns.vmware.com -o json | jq -r '.items[].status.registered'`
 
-# check the registration... should be 'true'
-sup get cnsregistervolumes.cns.vmware.com -o json | jq -r '.items[].status.registered'
+## check the supervisor PVC
+`sup get pvc ${PV_NAME}-migrated`
 
-# check the supervisor PVC
-sup get pvc ${PV_NAME}-migrated
-
-# adopt the FCD in VKS by creating a PV with the 
-# volume handle pointing to the Supervisor PVC,
-# also create a PVC 
+## adopt the FCD in VKS by creating a PV with the volume handle pointing to the Supervisor PVC, also create a PVC 
+```
 vks apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolume
@@ -214,11 +216,10 @@ spec:
 EOF
 
 
-# describe the pvc, check for health accessible
-# should be "yes"
+## describe the pvc, check for health accessible: should be "yes"
 vks -n ${TARGET_NS} get pvc ${PVC_NAME} -o json | jq -r '.items[].metadata.annotations."pv.kubernetes.io/bind-completed"'
 
-
+```
 
 ######
 # 6. Source clean-up or restore 
