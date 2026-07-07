@@ -89,6 +89,12 @@ oa -n ${SOURCE_NS} wait \
 # 3. Create Velero backup and restore (to/from the S3 endpoint)
 ######
 
+## Scale the source to zero
+```
+oa -n $SOURCE_NS scale deploy --replicas 0 --all
+oa -n $SOURCE_NS wait --for=condition=available=false deploy/<deployment-name> --timeout=120s
+```
+
 ## Create velero backup
 ```
 velero backup create ${SOURCE_NS}-backup-${UUID} \
@@ -151,15 +157,8 @@ oa patch pv $PV_NAME -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
 echo "PV: ${PV_NAME}"
 echo "FCD/CNS volume handle: ${VOL_HANDLE}"
 ```
-## Scale the source to zero and delte the source PVC
+## Delete the source PVC
 ```
-echo "Scaling deployment to 0..."
-oa -n $SOURCE_NS scale deploy --replicas 0 --all
-
-echo "Waiting for all pods to terminate..."
-oa -n $SOURCE_NS wait --for=condition=available=false deploy/<deployment-name> --timeout=120s
-
-echo "Pods are gone. Deleting PVC..."
 oa delete pvc $PVC_NAME
 ```
 ## Register the volume on the supervisor this will create the corresponding supervisor PV and PVC
