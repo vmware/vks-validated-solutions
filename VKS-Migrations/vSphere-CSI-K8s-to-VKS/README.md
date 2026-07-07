@@ -33,8 +33,9 @@ Supervisor PV
 vCenter FCD
 ```
 
-###
-###
+
+<br>
+
 ## Using `CnsRegisterVolume` CRD to adopt a volume
 
 
