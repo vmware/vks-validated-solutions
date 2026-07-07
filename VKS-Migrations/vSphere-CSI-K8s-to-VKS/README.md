@@ -52,6 +52,7 @@ vCenter FCD [2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1]
 ```
 
 <br>
+
 We can invoke the CRD to capture the FCD thus:
 
 ```
@@ -67,6 +68,7 @@ spec:
 ```
 
 <br>
+
 This takes the FCD with UUID `2c5999e4...` and creates a Supervisor PVC named `data-volume-adopted`
 
 ```
@@ -80,6 +82,7 @@ New Supervisor PV
 vCenter FCD [2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1]
 ```
 <br>
+
 This new Supervisor PVC can then be employed by a VKS cluster by creating a new VKS PV object and pointing the CSI `volumeHandle` to the Supervisor PVC:
 
 ```
