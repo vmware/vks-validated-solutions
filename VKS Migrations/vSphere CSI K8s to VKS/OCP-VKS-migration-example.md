@@ -6,53 +6,54 @@
 ### 2. We have access to an S3 endpoint.
 ### 3. Velero is installed on both OCP and VKS
 ### 4. The following tools are installed:
-#### <tab> 'oc' The Openshift command line
-#### <tab> 'vcf' The VCF command line
+#### 'oc' The Openshift command line
+#### 'vcf' The VCF command line
 
 
-# First, we link to the kubeconfig files
+## First, we link to the kubeconfig files
+```
 export OCP_KUBECONFIG=~/ocp-kubeconfig
 export VKS_KUBECONFIG=~/vks-kubeconfig
 export SUPERVISOR_KUBECONFIG=~/supervisor-kubeconfig
+```
 
-
-# Next, for convienence we alias commands to the 
-# three clusters (Openshift, Superisor, VKS)
+## Next, for convienence we alias commands to the three clusters (Openshift, Superisor, VKS)
+```
 alias vks='kubectl --kubeconfig=${VKS_KUBECONFIG}'
 alias oa='oc --kubeconfig=${OCP_KUBECONFIG}'
 alias sup='kubectl --kubeconfig=${SUPERVISOR_KUBECONFIG}'
-
+```
 
 ######   
 # 1. Define Variables:
 ######
 
-# get a random UUID
-export UUID=$(cat /proc/sys/kernel/random/uuid)
+### get a random UUID
+`export UUID=$(cat /proc/sys/kernel/random/uuid)`
 
-# the source namespace in OCP
-export SOURCE_NS=default
+### the source namespace in OCP
+`export SOURCE_NS=default`
 
-# the target namespace on VKS
-export TARGET_NS=velero-migration-target
+### the target namespace on VKS
+`export TARGET_NS=velero-migration-target`
 
-# the supervisor namespace
-export SUPERVISOR_NS=migration-target
+### the supervisor namespace
+`export SUPERVISOR_NS=migration-target`
 
-# the s3 url
-export S3_URL=https://my-s3-endpoint
+### the s3 url
+`export S3_URL=https://my-s3-endpoint`
 
-# name of the velero bucket
-export BUCKET=velerobucket1
+### name of the velero bucket
+`export BUCKET=velerobucket1`
 
-# source PVC 
-export PVC_NAME=data-migration-test-250g
+### source PVC 
+`export PVC_NAME=data-migration-test`
 
-# source storage class
-export SOURCE_SC=thin-csi
+### source storage class
+`export SOURCE_SC=thin-csi`
 
-# get the size of the PVC
-export PVC_SIZE=$(oa get pvc $PVC_NAME -o json | jq -r '.status.capacity.storage')
+### get the size of the PVC
+`export PVC_SIZE=$(oa get pvc $PVC_NAME -o json | jq -r '.status.capacity.storage')`
 
 
 
