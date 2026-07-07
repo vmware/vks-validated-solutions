@@ -118,6 +118,7 @@ vCenter FCD [2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1]
 No data copy ever takes place.
 
 <br>
+<br>
 
 ## Using Velero to copy manifest data
 
@@ -205,6 +206,7 @@ The full migration path is therefore a two-pronged approach:
 <br>
 Note this is simplified as here we have not captured any PVC/PV labels.
 
+<br>
 <br>
 
 ## Repository Structure
