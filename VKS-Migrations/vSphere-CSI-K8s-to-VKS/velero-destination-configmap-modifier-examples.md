@@ -3,6 +3,7 @@
 # Example Configmaps applied to the destination cluster to alter values
 
 ## Change image name
+```
 cat << EOF > image-registry-mapping.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -15,9 +16,10 @@ metadata:
 data:
   case1: harbor.source.example.com,harbor.vks.example.com
 EOF  
-
+```
 
 ## Change ingress controller
+```
 cat << EOF > rules.yaml
 version: v1
 resourceModifierRules:
@@ -29,4 +31,5 @@ resourceModifierRules:
       - operation: replace
         path: /spec/ingressClassName
         value: contour
-EOF        
+EOF
+```        
