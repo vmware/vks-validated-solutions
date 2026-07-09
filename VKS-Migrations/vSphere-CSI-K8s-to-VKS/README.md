@@ -29,7 +29,7 @@ Supervisor PVC
     │ 
     ▼
 Supervisor PV
-    |
+    │ 
     │ volumeHandle = FCD UUID
     ▼
 vCenter FCD
@@ -78,7 +78,7 @@ New Supervisor PVC [data-volume-adopted]
     │ 
     ▼
 New Supervisor PV
-    |
+    │     
     │ volumeHandle = 2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1
     ▼
 vCenter FCD [2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1]
@@ -111,7 +111,7 @@ New Supervisor PVC [data-volume-adopted]
     │ 
     ▼
 New Supervisor PV
-    |
+    │ 
     │ volumeHandle = 2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1
     ▼
 vCenter FCD [2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1]
@@ -152,57 +152,57 @@ The full migration path is therefore a two-pronged approach:
     ------------                            ---------------------
 
   OCP namespace manifests                 Original FCD is adopted
-        |                                  and moved into VKS path
-        |                                        |
+        │                                  and moved into VKS path
+        │                                        │
         v                                        v
 +--------------------+                 +----------------------------+
-| Velero backup      |                 | Patch OCP PV to Retain      |
-|                    |                 |                             |
-| --snapshot-volumes |                 | Delete / scale source app   |
-| false              |                 | Delete source PVC           |
-|                    |                 | Wait for VolumeAttachment   |
-| No PVC data copy   |                 | to disappear                |
+│ Velero backup      │                 │ Patch OCP PV to Retain      │
+│                    │                 │                             │
+│ --snapshot-volumes │                 │ Delete / scale source app   │
+│ false              │                 │ Delete source PVC           │
+│                    │                 │ Wait for VolumeAttachment   │
+│ No PVC data copy   │                 │ to disappear                │
 +---------+----------+                 +-------------+--------------+
-          |                                          |
-          | S3 / NooBaa bucket                       |
+          │                                          │
+          │ S3 / NooBaa bucket                       │
           v                                          v
 +--------------------+                 +----------------------------+
-| Velero restore     |                 | vSphere CNS / FCD          |
-| into VKS           |                 |                            |
-|                    |                 | FCD UUID / volumeHandle    |
-| Exclude PVCs       |                 +-------------+--------------+
-+---------+----------+                               |
-          |                                          |
+│ Velero restore     │                 │ vSphere CNS / FCD          │
+│ into VKS           │                 │                            │
+│                    │                 │ FCD UUID / volumeHandle    │
+│ Exclude PVCs       │                 +-------------+--------------+
++---------+----------+                               │
+          │                                          │
           v                                          v
 +----------------------------+        +-----------------------------+
-| VKS namespace              |        | Supervisor Namespace        |
-| TARGET_NS                  |        |                             |
-|                            |        | CnsRegisterVolume:          |
-| Restored app manifests     |        | volumeID: FCD UUID          |
-| initially missing PVC      |        | pvcName: PV_NAME-migrated   |
+│ VKS namespace              │        │ Supervisor Namespace        │
+│ TARGET_NS                  │        │                             │
+│                            │        │ CnsRegisterVolume:          │
+│ Restored app manifests     │        │ volumeID: FCD UUID          │
+│ initially missing PVC      │        │ pvcName: PV_NAME-migrated   │
 +-------------+--------------+        +--------------+--------------+
-              |                                      |
-              |                                      v
-              |                       +-----------------------------+
-              |                       | Supervisor PVC              |
-              |                       |                             |
-              |                       | PV_NAME-migrated            |
-              |                       +--------------+--------------+
-              |                                      |
+              │                                      │
+              │                                      v
+              │                       +-----------------------------+
+              │                       │ Supervisor PVC              │
+              │                       │                             │
+              │                       │ PV_NAME-migrated            │
+              │                       +--------------+--------------+
+              │                                      │
               v                                      v
 +---------------------------------------------------------------+
-| VKS / Workload Cluster                                        |
-|                                                               |
-| Static PV                                                     |
-|   spec.csi.driver: csi.vsphere.vmware.com                     |
-|   spec.csi.volumeHandle: PV_NAME-migrated                     |
-|                                                               |
-| Static PVC                                                    |
-|   name: PVC_NAME                                              |
-|   namespace: TARGET_NS                                        |
-|   volumeName: PVC_NAME-adopted                                |
-|                                                               |
-| Restored app pod mounts PVC_NAME and uses the adopted FCD     |
+│ VKS / Workload Cluster                                        │
+│                                                               │
+│ Static PV                                                     │
+│   spec.csi.driver: csi.vsphere.vmware.com                     │
+│   spec.csi.volumeHandle: PV_NAME-migrated                     │
+│                                                               │
+│ Static PVC                                                    │
+│   name: PVC_NAME                                              │
+│   namespace: TARGET_NS                                        │
+│   volumeName: PVC_NAME-adopted                                │
+│                                                               │
+│ Restored app pod mounts PVC_NAME and uses the adopted FCD     │
 +---------------------------------------------------------------+
 ```
 <br>
