@@ -1,7 +1,7 @@
 # Quick S3 endpoint on VKS (for testing) using noobaa
 
 
-## first install the cli (tested on Ubuntu Jammy)
+## First install the cli (tested on Ubuntu Jammy)
 ```
 OS="linux"
 ARCH=amd64
@@ -13,7 +13,7 @@ chmod +x noobaa-operator
 sudo mv noobaa-operator /usr/local/bin/noobaa
 ```
 
-## create the namespace and label
+## Create the namespace and label
 ```
 vks create ns noobaa
 vks label --overwrite ns noobaa \
@@ -22,41 +22,41 @@ vks label --overwrite ns noobaa \
   pod-security.kubernetes.io/audit=privileged
 ```
 
-## create a command alias 
+## Create a command alias 
 ```
 alias nb='noobaa --kubeconfig=${VKS_KUBECONFIG} -n noobaa'
 ```
-## install the noobaa operator
+## Install the noobaa operator
 ```
 nb install  
 ```
-## get the external S3 IP
+## Get the external S3 IP
 ```
 S3_IP=$(vks -n noobaa get svc s3 -o json | jq -r '.status.loadBalancer.ingress[0].ip')
 ```
-## create bucket
+## Create bucket
 ```
 nb obc create my-bucket --exact=true
 ```
-## get credentials
+## Get credentials
 ```
 vks -n noobaa get secret my-bucket -o json | jq '.data|map_values(@base64d)'
 ```
-## write a test file
+## Write a test file
 ```
 nb status > me.txt
 ```
 
-## install aws cli
+## Install aws cli
 ```
 sudo pip install awscli
 ```
-## configure aws cli, add credentials above
+## Configure aws cli, add credentials above
 ```
 aws configure 
 ```
 
-## upload test file
+## Upload test file
 ```
 aws s3 cp me.txt s3://my-bucket --endpoint-url https://${S3_IP} --no-verify-ssl
 ```
