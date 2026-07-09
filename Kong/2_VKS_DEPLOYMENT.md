@@ -23,7 +23,7 @@ These steps require access to vCenter and typically handled by an infrastructure
    * best-effort-medium
    * best-effort-2xlarge
 
-**Note**: We are using the previous storage policies and VM classes as an example. If different policies and classes are desired, update the sample vks.yaml file with the required values.
+**Note**: We are using the previous storage policies and VM classes as an example. If different policies and classes are desired, update the sample manifests/vks.yaml file with the required values.
 
 
 ## Deployment Procedure
@@ -163,9 +163,9 @@ vcf context use "$SUPERVISOR_CONTEXT":"$SUPERVISOR_NAMESPACE_NAME"
 
 
 ### 7. Create VKS cluster
-In this step we create a VKS cluster as defined in vks.yaml. 
+In this step we create a VKS cluster as defined in manifests/vks.yaml. 
 ```bash
-sed "s/cluster-vks/$CLUSTER_NAME/" vks.yaml | kubectl apply -f -
+sed "s/cluster-vks/$CLUSTER_NAME/" manifests/vks.yaml | kubectl apply -f -
 ```
 
 <details>

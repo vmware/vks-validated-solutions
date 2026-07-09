@@ -1,6 +1,6 @@
 # VKS Deployment
 ## Versions
-* vSphere Kubernetes 3.6.0 / VKr 1.35.0
+* vSphere Kubernetes 3.6.0 / VKr 1.35.5
 
 ## References
 * [Command line tool (kubectl)](https://kubernetes.io/docs/reference/kubectl/)
@@ -11,12 +11,13 @@
 ### Linux CLI Tools
 * [kubectl cli v1.35](https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl)
 * [vcf cli v9.0.1](https://packages.broadcom.com/artifactory/vcf-distro/vcf-cli/linux/amd64/v9.0.1/)
-* [helm cli v3.19](https://get.helm.sh/helm-v3.19.0-linux-amd64.tar.gz)
+
+**Note**: Unlike some other ISV integrations in this repository, the Coherent Spark Hybrid Runner is deployed using plain Kubernetes manifests (Deployment, Service, PersistentVolumeClaim). Helm is not required.
 
 ### Required vSphere Steps
 These steps require access to vCenter and typically handled by an infrastructure administrator.
 
-1. In WCP, create a supervisor namespace (e.g. 'f5')
+1. In WCP, create a supervisor namespace (e.g. 'coherent')
 2. Add storage policy to supervisor namespace
    * vsan-esa-default-policy-raid5
 3. Add VM classes to supervisor namespace
@@ -50,11 +51,11 @@ export CLUSTER_NAMESPACE_NAME="vks_cluster_namespace"
 export VCENTER_IP="10.138.242.199"
 export SUPERVISOR_IP="10.139.8.6" 
 export SUPERVISOR_USERNAME="user@vsphere.local"
-export SUPERVISOR_NAMESPACE_NAME="f5"
-export SUPERVISOR_CONTEXT="f5-ctx"
-export CLUSTER_NAME="f5-vks"
-export CLUSTER_CONTEXT="f5-vks-ctx"
-export CLUSTER_NAMESPACE_NAME="f5-vks-ns"
+export SUPERVISOR_NAMESPACE_NAME="coherent"
+export SUPERVISOR_CONTEXT="coherent-ctx"
+export CLUSTER_NAME="coherent-vks"
+export CLUSTER_CONTEXT="coherent-vks-ctx"
+export CLUSTER_NAMESPACE_NAME="coherent-vks-ns"
 ```
 </details>
 <br>
@@ -126,15 +127,15 @@ Provide Password:
 Logged in successfully.
 
 You have access to the following contexts:
-   f5-ctx
-   f5-ctx:f5
+   coherent-ctx
+   coherent-ctx:coherent
 
 If the namespace context you wish to use is not in this list, you may need to
 refresh the context again, or contact your cluster administrator.
 
 To change context, use `vcf context use <context_name>`
-[ok] successfully created context: f5-ctx
-[ok] successfully created context: f5-ctx:f5
+[ok] successfully created context: coherent-ctx
+[ok] successfully created context: coherent-ctx:coherent
 ```
 </details>
 <br>
@@ -150,9 +151,9 @@ vcf context use "$SUPERVISOR_CONTEXT":"$SUPERVISOR_NAMESPACE_NAME"
 <summary>Expected output</summary>
 
 ```shell
-[ok] Token is still active. Skipped the token refresh for context "f5-ctx:f5"
-[i] Successfully activated context 'f5-ctx:f5' (Type: kubernetes) 
-[i] Fetching recommended plugins for active context 'f5-ctx:f5'...
+[ok] Token is still active. Skipped the token refresh for context "coherent-ctx:coherent"
+[i] Successfully activated context 'coherent-ctx:coherent' (Type: kubernetes) 
+[i] Fetching recommended plugins for active context 'coherent-ctx:coherent'...
 [i] No image repository override information was found
 [ok] All recommended plugins are already installed and up-to-date. 
 ```
@@ -171,7 +172,7 @@ sed "s/cluster-vks/$CLUSTER_NAME/" manifests/vks.yaml | kubectl apply -f -
 <summary>Expected output</summary>
 
 ```shell
-cluster.cluster.x-k8s.io/f5-vks created
+cluster.cluster.x-k8s.io/coherent-vks created
 ```
 </details>
 <br>
@@ -188,11 +189,11 @@ kubectl get cluster "$CLUSTER_NAME" --watch
 <summary>Expected output</summary>
 
 ```shell
-NAME       CLUSTERCLASS             AVAILABLE   CP DESIRED   CP AVAILABLE   CP UP-TO-DATE   W DESIRED   W AVAILABLE   W UP-TO-DATE   PHASE         AGE   VERSION
-f5-vks   builtin-generic-v3.6.0   False       1            0              1               3           0             3              Provisioned   67s   v1.35.0+vmware.2
+NAME           CLUSTERCLASS             AVAILABLE   CP DESIRED   CP AVAILABLE   CP UP-TO-DATE   W DESIRED   W AVAILABLE   W UP-TO-DATE   PHASE         AGE   VERSION
+coherent-vks   builtin-generic-v3.6.0   False       3            0              3               3           0             3              Provisioned   67s   v1.35.5+vmware.1
 [...]
-f5-vks   builtin-generic-v3.6.0   False       1            1              1               3           2             3              Provisioned   3m18s   v1.35.0+vmware.2
-f5-vks   builtin-generic-v3.6.0   True        1            1              1               3           3             3              Provisioned   3m18s   v1.35.0+vmware.2
+coherent-vks   builtin-generic-v3.6.0   False       3            3              3               3           2             3              Provisioned   4m2s   v1.35.5+vmware.1
+coherent-vks   builtin-generic-v3.6.0   True        3            3              3               3           3             3              Provisioned   4m2s   v1.35.5+vmware.1
 ```
 </details>
 <br>
@@ -212,19 +213,19 @@ vcf context create "$CLUSTER_CONTEXT" \
 <summary>Expected output</summary>
 
 ```shell
-[i] Logging in to Kubernetes cluster (f5-vks) (f5)
+[i] Logging in to Kubernetes cluster (coherent-vks) (coherent)
 [i] Successfully logged in to Kubernetes cluster 10.138.216.200
 
 You have access to the following contexts:
     vks
-    vks:f5-vks
+    vks:coherent-vks
 
 If the namespace context you wish to use is not in this list, you may need to
 refresh the context again, or contact your cluster administrator.
  
 To change context, use `vcf context use <context_name>`
 [ok] successfully created context: vks
-[ok] successfully created context: vks:f5-vks
+[ok] successfully created context: vks:coherent-vks
 ```
 </details>
 <br>
@@ -240,8 +241,8 @@ vcf context use "$CLUSTER_CONTEXT":"$CLUSTER_NAME"
 <summary>Expected output</summary>
 
 ```shell
-[ok] Token is still active. Skipped the token refresh for context "vks:f5-vks"
-[i] Successfully activated context 'vks:f5-vks' (Type: kubernetes) 
+[ok] Token is still active. Skipped the token refresh for context "vks:coherent-vks"
+[i] Successfully activated context 'vks:coherent-vks' (Type: kubernetes) 
 [i] Fetching recommended plugins for active context
 ```
 </details>
@@ -253,12 +254,13 @@ vcf context use "$CLUSTER_CONTEXT":"$CLUSTER_NAME"
 kubectl get nodes -o wide
 
 # Expected output: 
-NAME                                     STATUS   ROLES           AGE   VERSION            INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION     CONTAINER-RUNTIME
-f5-vks-node-pool-1-8jzgf-bhrz2-vmnw7   Ready    <none>          36m   v1.35.0+vmware.2   172.26.0.5    <none>        Ubuntu 24.04.3 LTS   6.8.0-86-generic   containerd://2.1.4+vmware.3-fips
-f5-vks-node-pool-2-zd45h-59jlx-mrr64   Ready    <none>          36m   v1.35.0+vmware.2   172.26.0.6    <none>        Ubuntu 24.04.3 LTS   6.8.0-86-generic   containerd://2.1.4+vmware.3-fips
-f5-vks-node-pool-3-v8j28-bjm5t-w2h2q   Ready    <none>          36m   v1.35.0+vmware.2   172.26.0.4    <none>        Ubuntu 24.04.3 LTS   6.8.0-86-generic   containerd://2.1.4+vmware.3-fips
-f5-vks-trdx9-gmtbm                     Ready    control-plane   38m   v1.35.0+vmware.2   172.26.0.3    <none>        Ubuntu 24.04.3 LTS   6.8.0-86-generic   containerd://2.1.4+vmware.3-fips
-
+NAME                                          STATUS   ROLES           AGE   VERSION           INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME
+coherent-vks-node-pool-1-8jzgf-bhrz2-vmnw7   Ready    <none>          36m   v1.35.5+vmware.1   172.26.0.5    <none>        Ubuntu 24.04.3 LTS   6.8.0-90-generic    containerd://2.1.4+vmware.3-fips
+coherent-vks-node-pool-1-8jzgf-bhrz2-x9k2q   Ready    <none>          36m   v1.35.5+vmware.1   172.26.0.6    <none>        Ubuntu 24.04.3 LTS   6.8.0-90-generic    containerd://2.1.4+vmware.3-fips
+coherent-vks-node-pool-1-8jzgf-bhrz2-p3n8r   Ready    <none>          36m   v1.35.5+vmware.1   172.26.0.7    <none>        Ubuntu 24.04.3 LTS   6.8.0-90-generic    containerd://2.1.4+vmware.3-fips
+coherent-vks-trdx9-gmtbm                     Ready    control-plane   38m   v1.35.5+vmware.1   172.26.0.3    <none>        Ubuntu 24.04.3 LTS   6.8.0-90-generic    containerd://2.1.4+vmware.3-fips
+coherent-vks-trdx9-hn4wc                     Ready    control-plane   38m   v1.35.5+vmware.1   172.26.0.4    <none>        Ubuntu 24.04.3 LTS   6.8.0-90-generic    containerd://2.1.4+vmware.3-fips
+coherent-vks-trdx9-kq7zs                     Ready    control-plane   38m   v1.35.5+vmware.1   172.26.0.8    <none>        Ubuntu 24.04.3 LTS   6.8.0-90-generic    containerd://2.1.4+vmware.3-fips
 ```
 </details>
 <br>
@@ -318,8 +320,7 @@ kubectl get svc <service_name>-external
 kubectl get tkr -l '!kubernetes.vmware.com/kubernetesrelease'
 
 # Get TKR releaase specs
-# e.g. kubectl get tkr 'v1.35.0---vmware.2-vkr.4' -o yaml
+# e.g. kubectl get tkr 'v1.35.5---vmware.1-vkr.1' -o yaml
 kubectl get tkr TKR_NAME -o yaml  
 ```
-
 
