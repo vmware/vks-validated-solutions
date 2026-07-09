@@ -206,7 +206,7 @@ The full migration path is therefore a two-pronged approach:
 +---------------------------------------------------------------+
 ```
 <br>
-*Note this is a simplified flow not taking into account any PVC/PV labels, etc.*
+Note this is a simplified flow not taking into account any PVC/PV labels, etc.
 
 <br>
 <br>
