@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hybrid-runner-service
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: hybrid-runner
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hybrid-runner
+# namespace: core-testing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hybrid-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hybrid-runner
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: hybrid-runner
+      containers:
+        - name: hybrid-runner
+          image: ghcr.io/coherent-partners/nodegen-server:v1.53.4
+          ports:
+            - containerPort: 3000
+          env:
+            - name: BODY_LIMIT
+              value: '100mb'
+            - name: CORS_ORIGIN
+              value: 'https://*coherent.global'
+            - name: CACHE_DIR
+              value: '/cache'
+            - name: MODEL_LOCATION
+              value: '/models'
+            - name: USE_SAAS
+              value: 'false'
+            - name: UPLOAD_ENABLED
+              value: 'true'
+          resources:
+            requests:
+              cpu: '1'
+              memory: '2Gi'
+            limits:
+              cpu: '3'
+              memory: '2Gi'
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+            - name: tenant-resolver
+              mountPath: /project/src/app/src/tenant_resolver
+            - name: models
+              mountPath: /models
+      volumes:
+        - name: cache
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: tenant-resolver
+          emptyDir: {}
+        - name: models
+          persistentVolumeClaim:
+            claimName: coherent-pvc
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hybrid-runner-hpa
+# namespace: core-testing
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hybrid-runner
+  minReplicas: 4
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75

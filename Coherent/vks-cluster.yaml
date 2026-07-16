@@ -1,0 +1,48 @@
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: coherent-c1
+  namespace: coherent
+spec:
+  clusterNetwork:
+    services:
+      cidrBlocks: ["10.96.0.0/12"]
+    pods:
+      cidrBlocks: ["192.168.0.0/16"]
+    serviceDomain: "cluster.local"
+  topology:
+    classRef: 
+      name: builtin-generic-v3.6.0
+    version: v1.35.2---vmware.1-vkr.3
+    controlPlane:
+      replicas: 3
+      metadata:
+        annotations:
+          run.tanzu.vmware.com/resolve-os-image: os-name=ubuntu,os-version=24.04
+    workers:
+      machineDeployments:
+        - class: node-pool
+          metadata:
+            annotations:
+              run.tanzu.vmware.com/resolve-os-image: os-name=ubuntu,os-version=24.04
+          name: node-pool-1
+          replicas: 3
+          variables:
+            overrides:
+            - name: vmClass
+              value: best-effort-large
+    variables:
+      - name: vmClass
+        value: best-effort-medium
+      - name: storageClass
+        value: vsan-esa-default-policy-raid5
+      - name: vsphereOptions
+        value:
+          persistentVolumes:
+            defaultStorageClass: vsan-esa-default-policy-raid5
+      - name: kubernetes
+        value:
+          security:
+            podSecurityStandard:
+              enforce: baseline
+
