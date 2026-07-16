@@ -1,5 +1,14 @@
 # Migrating vSphere CSI-based Kubernetes Workloads to VMware vSphere Kubernetes Service (VKS)
 
+## Repository Structure
+
+```
+├── OCP-VKS-migration-example.md        # Worked example from Openshift to VKS
+├── quick-s3-endpoint-for-testing       # Example of a quick S3 endpoint on VKS using `noobaa`
+├── zero-copy-migration-poc-script.sh   # Example proof-of-concept script  
+└── README.md                           # Repository root documentation
+```
+
 ## Overview
 
 This repository serves as the companion to the published whitepaper detailing the migration of workloads from vSphere CSI-based Kubernetes Workloads (such as TKGi, Upstream K8s, Openshift, etc.) to VKS. 
@@ -211,10 +220,3 @@ Note this is a simplified flow not taking into account any PVC/PV labels, etc.
 <br>
 <br>
 
-## Repository Structure
-
-```
-├── OCP-VKS-migration-example.md      # Worked example from Openshift to VKS
-├── quick-s3-endpoint-for-testing     # Example of a quick S3 endpoint on VKS using `noobaa`
-└── README.md                         # Repository root documentation
-```
