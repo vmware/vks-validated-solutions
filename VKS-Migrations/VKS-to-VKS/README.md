@@ -107,7 +107,7 @@ The workflow is:
 7. Create a new VKS PV/PVC referencing the new Supervisor PVC
 
 ```text
-Source vCenter
+-- Source vCenter --
 
 FCD
  │
@@ -116,7 +116,7 @@ Helper VM
    >>> Storage vMotion >>>
 
 
-Destination vCenter
+-- Destination vCenter --
 
 Helper VM
  │
