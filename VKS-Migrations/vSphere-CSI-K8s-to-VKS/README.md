@@ -205,4 +205,4 @@ See [`OCP-VKS-migration-example.md`](OCP-VKS-migration-example.md) for a complet
 
 ## Related documentation
 
-This repository accompanies the VMware whitepaper on migrating Kubernetes workloads to VKS. Validate the procedure against current product documentation and support guidance before production use.
+This repository accompanies the [whitepaper](https://www.vmware.com/docs/vmw-kubernetes-workload-migration-to-vks) on migrating Kubernetes workloads to VKS. Validate the procedure against current product documentation and support guidance before production use.
