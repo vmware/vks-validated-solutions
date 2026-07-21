@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keep-workloads-stopped
+  namespace: velero
+  labels:
+    velero.io/plugin-config: ""
+    velero.io/resource-modifier: RestoreItemAction
+data:
+  resourceModifierRules: |
+    version: v1
+    resourceModifierRules:
+      - conditions:
+          groupResource: deployments.apps
+          namespaces:
+            - my-application
+        patches:
+          - operation: replace
+            path: /spec/replicas
+            value: "0"
+      - conditions:
+          groupResource: statefulsets.apps
+          namespaces:
+            - my-application
+        patches:
+          - operation: replace
+            path: /spec/replicas
+            value: "0"

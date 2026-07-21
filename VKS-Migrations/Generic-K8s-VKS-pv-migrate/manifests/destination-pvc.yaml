@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-data
+  namespace: my-application
+  # Add only portable labels and annotations required by the application.
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  storageClassName: vsan-esa-default-policy-raid5
+  resources:
+    requests:
+      storage: 100Gi
