@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This procedure deploys NooBaa on a VKS cluster to provide an S3-compatible endpoint for Velero lab testing.
+This procedure deploys `NooBaa` on a VKS cluster to provide an S3-compatible endpoint for Velero lab testing.
 
 > [!WARNING]
 > This is a convenience configuration for a non-production environment. It uses a privileged namespace and the examples disable TLS certificate verification. Do not treat it as a production backup architecture.
