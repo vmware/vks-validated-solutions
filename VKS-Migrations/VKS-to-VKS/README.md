@@ -160,6 +160,6 @@ These examples demonstrate:
 
 ---
 
-## Summary
+# Summary
 
 This technique demonstrates that VKS Persistent Volumes can be migrated by reconstructing Kubernetes metadata rather than copying application data. By preserving the underlying First Class Disk and rebuilding the Supervisor/VKS storage chain, workloads can be moved between VKS clusters—and even across vCenters—with minimal disruption.
