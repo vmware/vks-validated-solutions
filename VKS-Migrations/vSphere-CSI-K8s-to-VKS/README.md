@@ -11,7 +11,7 @@
 
 ## Overview
 
-This repository serves as the companion to the published whitepaper detailing the migration of workloads from vSphere CSI-based Kubernetes Workloads (such as TKGi, Upstream K8s, Openshift, etc.) to VKS. 
+This repository serves as the companion to the [published whitepaper](https://www.vmware.com/docs/vmw-kubernetes-workload-migration-to-vks) detailing the migration of workloads from vSphere CSI-based Kubernetes Workloads (such as TKGi, Upstream K8s, Openshift, etc.) to VKS. 
 
 ## Background
 
