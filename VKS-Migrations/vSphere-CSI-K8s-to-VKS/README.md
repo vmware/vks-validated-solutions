@@ -1,222 +1,208 @@
-# Migrating vSphere CSI-based Kubernetes Workloads to VMware vSphere Kubernetes Service (VKS)
-
-## Repository Structure
-
-```
-├── OCP-VKS-migration-example.md        # Worked example from Openshift to VKS
-├── quick-s3-endpoint-for-testing       # Example of a quick S3 endpoint on VKS using `noobaa`
-├── zero-copy-migration-poc-script.sh   # Example proof-of-concept script  
-└── README.md                           # Repository root documentation
-```
+# Migrating vSphere CSI-based Kubernetes Workloads to VKS
 
 ## Overview
 
-This repository serves as the companion to the [published whitepaper](https://www.vmware.com/docs/vmw-kubernetes-workload-migration-to-vks) detailing the migration of workloads from vSphere CSI-based Kubernetes Workloads (such as TKGi, Upstream K8s, Openshift, etc.) to VKS. 
+This validated solution demonstrates how to migrate a stateful workload from a Kubernetes cluster using the vSphere CSI driver—for example, OpenShift, upstream Kubernetes or TKGi—to VMware vSphere Kubernetes Service (VKS), while preserving the existing vSphere First Class Disk (FCD).
 
-## Background
+The migration has two independent paths:
 
-For non-VKS Kubernetes clusters (upstream, OpenShift, etc.) the CSI volumeHandle directly identifies the underlying First Class Disk (FCD) in vCenter
+1. **Application metadata** is backed up and restored with Velero.
+2. **Persistent storage** is adopted into the destination Supervisor with `CnsRegisterVolume`, then exposed to the destination VKS cluster through a statically defined PersistentVolume and PersistentVolumeClaim.
 
-``` 
-Source PV
-    │ 
-    │ .spec.csi.volumeHandle = FCD UUID
-    ▼
-vCenter FCD
+The application data is not copied. The same FCD is detached from the source cluster and registered for use through the VKS storage hierarchy.
+
+> [!CAUTION]
+> This procedure transfers ownership of an existing FCD. Quiesce the application, protect the volume, confirm that it is detached from the source cluster and rehearse rollback before using the procedure with production data.
+
+## Repository contents
+
+```text
+.
+├── README.md
+├── OCP-VKS-migration-example.md
+├── zero-copy-migration-poc-script.sh
+├── velero-destination-configmap-modifier-examples.md
+└── quick-s3-endpoint-for-testing.md
 ```
 
-<br>
+- [`OCP-VKS-migration-example.md`](OCP-VKS-migration-example.md) contains the detailed OpenShift-to-VKS procedure.
+- [`zero-copy-migration-poc-script.sh`](zero-copy-migration-poc-script.sh) provides a compact proof-of-concept implementation.
+- [`velero-destination-configmap-modifier-examples.md`](velero-destination-configmap-modifier-examples.md) shows examples of destination-side resource translation.
+- [`quick-s3-endpoint-for-testing.md`](quick-s3-endpoint-for-testing.md) creates a temporary S3-compatible endpoint for lab testing.
 
-VKS clusters use a modified using a para-virtualized version of the CSI driver. Each VKS PVC points to a Supervisor PVC, which in turn binds to a Supervisor PV with the FCD UUID as the volumeHandle:
- 
-``` 
-VKS PV
-    │ 
-    │ volumeHandle = Supervisor PVC
-    ▼
-Supervisor PVC
-    │ 
-    ▼
-Supervisor PV
-    │ 
-    │ volumeHandle = FCD UUID
-    ▼
-vCenter FCD
+## When to use this approach
+
+Use this workflow when:
+
+- The source PV is provisioned by `csi.vsphere.vmware.com`.
+- The source and destination use the same vCenter-managed FCD, or the FCD has already been migrated into the destination vCenter.
+- The destination Supervisor supports the `CnsRegisterVolume` custom resource.
+- A maintenance window is available to stop writes and detach the volume from the source cluster.
+- Reusing the existing disk is preferable to copying the filesystem into a newly provisioned destination volume.
+
+This workflow is not suitable when the source volume must remain mounted and writable during migration, when the destination cannot access the FCD, or when storage transformation requires a filesystem-level copy.
+
+## Storage architecture
+
+### Source Kubernetes cluster
+
+In a conventional vSphere CSI cluster, the PV's CSI `volumeHandle` directly identifies the backing FCD:
+
+```mermaid
+flowchart TB
+    SRC_PVC[Source PVC] --> SRC_PV[Source PV]
+    SRC_PV -->|spec.csi.volumeHandle = FCD UUID| FCD[(vSphere First Class Disk)]
 ```
 
+### Destination VKS cluster
 
-<br>
+VKS uses a para-virtualised storage path. The VKS PV refers to a Supervisor PVC; the corresponding Supervisor PV refers to the FCD:
 
-## Using `CnsRegisterVolume` CRD to adopt a volume
-
-
-The `CnsRegisterVolume` CRD can be invoked to create a Supervisor PV/PVC pair from a vCenter FCD if none exists:
-
-For example, for a given a vSphere CSI PV:
-
-``` 
-Source PV
-    │ 
-    │ .spec.csi.volumeHandle = 2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1
-    ▼
-vCenter FCD [2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1]
+```mermaid
+flowchart TB
+    VKS_PVC[VKS PVC] --> VKS_PV[VKS PV]
+    VKS_PV -->|volumeHandle = Supervisor PVC name| SUP_PVC[Supervisor PVC]
+    SUP_PVC --> SUP_PV[Supervisor PV]
+    SUP_PV -->|volumeHandle = FCD UUID| FCD[(vSphere First Class Disk)]
 ```
 
-<br>
+`CnsRegisterVolume` reconstructs the Supervisor portion of this chain around the existing FCD.
 
-We can invoke the CRD to capture the FCD thus:
+## Migration architecture
 
+The manifest and storage paths are deliberately separated:
+
+```mermaid
+flowchart LR
+    subgraph Source[Source Kubernetes cluster]
+        APP[Application resources]
+        PVC[PVC and PV]
+    end
+
+    subgraph Metadata[Manifest path]
+        BACKUP[Velero backup\nexclude volume data]
+        RESTORE[Velero restore\nexclude destination PVC]
+    end
+
+    subgraph Storage[Storage adoption path]
+        RETAIN[Set source PV to Retain]
+        DETACH[Stop workload and detach FCD]
+        REGISTER[CnsRegisterVolume]
+        STATIC[Create static VKS PV and PVC]
+    end
+
+    subgraph Destination[Destination VKS]
+        DEST_APP[Restored application resources]
+        DEST_PVC[Adopted PVC]
+    end
+
+    APP --> BACKUP --> RESTORE --> DEST_APP
+    PVC --> RETAIN --> DETACH --> REGISTER --> STATIC --> DEST_PVC
+    DEST_PVC --> DEST_APP
 ```
+
+The two paths converge when the restored workload mounts the statically created destination PVC.
+
+## Migration phases
+
+### 1. Discover and validate
+
+Identify the source namespace, PVC, PV, FCD UUID, capacity, access mode, volume mode, filesystem type and StorageClass. Confirm that the destination Supervisor namespace has an appropriate storage policy and that `CnsRegisterVolume` is available.
+
+### 2. Protect the source volume
+
+Create a CSI `VolumeSnapshot` where supported. The snapshot is a rollback safeguard; it is not used to move the data.
+
+### 3. Back up application metadata
+
+Use Velero to capture namespaced application resources without snapshotting volume data. Restore those resources into the destination namespace while excluding PVCs, because the destination PVC will be created separately around the adopted FCD.
+
+### 4. Quiesce and detach
+
+Stop all writers, set the source PV reclaim policy to `Retain`, delete the source PVC and wait until the source `VolumeAttachment` has disappeared. Do not register an FCD that remains attached to a source node.
+
+### 5. Register the FCD with the Supervisor
+
+Create a `CnsRegisterVolume` resource in the destination Supervisor namespace. When registration succeeds, the Supervisor creates a new PVC/PV pair whose backing volume is the original FCD.
+
+### 6. Expose the volume to VKS
+
+Create a static VKS PV whose CSI `volumeHandle` is the **Supervisor PVC name**, not the FCD UUID. Bind a static VKS PVC to this PV.
+
+### 7. Validate and complete cutover
+
+Confirm that the VKS PVC is bound, mount it in a validation pod, verify known data, then start the migrated workload. Retain source rollback objects until application validation is complete.
+
+## Key safety rules
+
+- **Snapshot before destructive changes**, where a compatible snapshot class is available.
+- **Set the source PV to `Retain` before deleting the source PVC.**
+- **Stop every writer before detaching the FCD.** Scaling Deployments alone may not stop StatefulSets, Jobs, standalone Pods or operators.
+- **Wait for source `VolumeAttachment` removal.** Do not assume deletion of the PVC immediately detaches the disk.
+- **Do not use the FCD UUID as the VKS PV `volumeHandle`.** The VKS PV must reference the Supervisor PVC created by `CnsRegisterVolume`.
+- **Do not remove source PV finalizers as routine cleanup.** Delete the retained source PV only after destination validation; forcibly removing finalizers should be an exceptional recovery action.
+- **Keep rollback assets until sign-off.** This includes the source snapshot, retained source PV metadata and the recorded FCD UUID.
+
+## Example `CnsRegisterVolume`
+
+```yaml
 apiVersion: cns.vmware.com/v1alpha1
 kind: CnsRegisterVolume
 metadata:
   name: register-application-data
   namespace: destination-supervisor-namespace
 spec:
-  pvcName: data-volume-adopted
-  volumeID: 2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1
+  volumeID: "2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1"
   accessMode: ReadWriteOnce
+  pvcName: data-volume-adopted
 ```
 
-<br>
+Wait for registration and inspect any reported error:
 
-This takes the FCD with UUID `2c5999e4...` and creates a Supervisor PVC named `data-volume-adopted`
+```bash
+kubectl --kubeconfig="${SUPERVISOR_KUBECONFIG}" \
+  -n destination-supervisor-namespace wait \
+  --for=jsonpath='{.status.registered}'=true \
+  cnsregistervolume/register-application-data \
+  --timeout=5m
 
+kubectl --kubeconfig="${SUPERVISOR_KUBECONFIG}" \
+  -n destination-supervisor-namespace get \
+  cnsregistervolume/register-application-data \
+  -o jsonpath='{.status.error}{"\n"}'
 ```
-New Supervisor PVC [data-volume-adopted]
-    │ 
-    ▼
-New Supervisor PV
-    │     
-    │ volumeHandle = 2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1
-    ▼
-vCenter FCD [2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1]
-```
-<br>
 
-This new Supervisor PVC can then be employed by a VKS cluster by creating a new VKS PV object and pointing the CSI `volumeHandle` to the Supervisor PVC:
+## Validation checklist
 
-```
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: adopted-vks-pv
-spec:
-  capacity:
-    storage: 5Gi
-  accessModes:
-    - ReadWriteOnce
-  csi:
-    driver: csi.vsphere.vmware.com
-    volumeHandle: "data-volume-adopted"
-```    
+- Source application is stopped and no writers remain.
+- Source PV reclaim policy is `Retain`.
+- Source `VolumeAttachment` no longer exists.
+- `CnsRegisterVolume.status.registered` is `true`.
+- The created Supervisor PVC is `Bound`.
+- The Supervisor PV `volumeHandle` matches the captured FCD UUID.
+- The VKS PV points to the Supervisor PVC name.
+- The VKS PVC is `Bound`.
+- A validation pod can mount and read the expected data.
+- The restored workload starts successfully and passes application checks.
 
-``` 
-New VKS PV [adopted-vks-pv]
-    │ 
-    │ volumeHandle = "data-volume-adopted"
-    ▼
-New Supervisor PVC [data-volume-adopted]
-    │ 
-    ▼
-New Supervisor PV
-    │ 
-    │ volumeHandle = 2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1
-    ▼
-vCenter FCD [2c5999e4-e4a7-4cf8-9220-ac9f2d04f4b1]
-```
-<br>
-No data copy ever takes place.
+## Limitations and assumptions
 
-<br>
-<br>
+| Item | Notes |
+|---|---|
+| Status | Example validated-solution workflow; test against the exact VCF, Supervisor, CSI and source-platform versions in use. |
+| Data movement | No filesystem copy occurs. The existing FCD is re-registered. |
+| Downtime | Required while the source is quiesced, detached and adopted by VKS. |
+| Source storage | Must be a vSphere CSI block volume represented by an FCD. |
+| Access mode | Examples use `ReadWriteOnce`; adapt only where the source and destination support the required mode. |
+| Destination API | The Supervisor must provide `CnsRegisterVolume`. |
+| Storage policy | The destination Supervisor namespace must permit a policy compatible with the FCD. |
+| Cross-vCenter use | Requires the FCD to be migrated to the destination vCenter before registration. |
+| Application translation | Images, ingress classes, security settings, StorageClasses and operators may require destination-specific changes. |
 
-## Using Velero to copy manifest data
+## Worked example
 
-In parallel, manifests/etc can be captured by a Velero backup from the source cluster, excluding PVs:
+See [`OCP-VKS-migration-example.md`](OCP-VKS-migration-example.md) for a complete OpenShift-to-VKS walkthrough.
 
-```
-velero backup create ${BACKUP_NAME} \
-  --kubeconfig=${SOURCE_KUBECONFIG} \
-  --include-namespaces ${SOURCE_NS} \
-  --include-cluster-resources=false \
-  --snapshot-volumes=false \
-  --exclude-resources=persistentvolumes
-```
-<br>
-And then restore to the destination cluster, again, excluding PVs
+## Related documentation
 
-```
-velero restore create ${TARGET_NS}-restore-${UUID} \
-  --kubeconfig=${VKS_KUBECONFIG} \
-  --from-backup ${SOURCE_NS}-backup-${UUID} \
-  --namespace-mappings ${SOURCE_NS}:${TARGET_NS} \
-  --exclude-resources persistentvolumeclaims
-```
-<br>
-The full migration path is therefore a two-pronged approach:
-
-```
-    Manifest path                           Storage adoption path
-    ------------                            ---------------------
-
-  OCP namespace manifests                 Original FCD is adopted
-        │                                  and moved into VKS path
-        │                                        │
-        v                                        v
-+--------------------+                 +----------------------------+
-│ Velero backup      │                 │ Patch OCP PV to Retain      │
-│                    │                 │                             │
-│ --snapshot-volumes │                 │ Delete / scale source app   │
-│ false              │                 │ Delete source PVC           │
-│                    │                 │ Wait for VolumeAttachment   │
-│ No PVC data copy   │                 │ to disappear                │
-+---------+----------+                 +-------------+--------------+
-          │                                          │
-          │ S3 / NooBaa bucket                       │
-          v                                          v
-+--------------------+                 +----------------------------+
-│ Velero restore     │                 │ vSphere CNS / FCD          │
-│ into VKS           │                 │                            │
-│                    │                 │ FCD UUID / volumeHandle    │
-│ Exclude PVCs       │                 +-------------+--------------+
-+---------+----------+                               │
-          │                                          │
-          v                                          v
-+----------------------------+        +-----------------------------+
-│ VKS namespace              │        │ Supervisor Namespace        │
-│ TARGET_NS                  │        │                             │
-│                            │        │ CnsRegisterVolume:          │
-│ Restored app manifests     │        │ volumeID: FCD UUID          │
-│ initially missing PVC      │        │ pvcName: PV_NAME-migrated   │
-+-------------+--------------+        +--------------+--------------+
-              │                                      │
-              │                                      v
-              │                       +-----------------------------+
-              │                       │ Supervisor PVC              │
-              │                       │                             │
-              │                       │ PV_NAME-migrated            │
-              │                       +--------------+--------------+
-              │                                      │
-              v                                      v
-+---------------------------------------------------------------+
-│ VKS / Workload Cluster                                        │
-│                                                               │
-│ Static PV                                                     │
-│   spec.csi.driver: csi.vsphere.vmware.com                     │
-│   spec.csi.volumeHandle: PV_NAME-migrated                     │
-│                                                               │
-│ Static PVC                                                    │
-│   name: PVC_NAME                                              │
-│   namespace: TARGET_NS                                        │
-│   volumeName: PVC_NAME-adopted                                │
-│                                                               │
-│ Restored app pod mounts PVC_NAME and uses the adopted FCD     │
-+---------------------------------------------------------------+
-```
-<br>
-Note this is a simplified flow not taking into account any PVC/PV labels, etc.
-
-<br>
-<br>
-
+This repository accompanies the VMware whitepaper on migrating Kubernetes workloads to VKS. Validate the procedure against current product documentation and support guidance before production use.
