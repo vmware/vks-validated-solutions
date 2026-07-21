@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+### NOTE: Here we assume the FCD has already been migrated ## 
+
 : "${DST_SUP_KUBECONFIG:?Set DST_SUP_KUBECONFIG}"
 : "${DST_VKS_KUBECONFIG:?Set DST_VKS_KUBECONFIG}"
 : "${DEST_FCD_UUID:?Set DEST_FCD_UUID after verifying it on the destination vCenter}"
