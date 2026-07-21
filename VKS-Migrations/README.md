@@ -19,7 +19,7 @@ The correct approach depends primarily on the source platform, the storage drive
 |---|---|---:|---|
 | OpenShift, Rancher, upstream Kubernetes or another CNCF-conformant cluster | VKS | Filesystem copy using `pv-migrate` | [`Any-K8s-VKS-pv-migrate`](Any-K8s-VKS-pv-migrate/) |
 | Kubernetes using the vSphere CSI driver | VKS | No filesystem copy; existing FCD is registered with the Supervisor | [`vSphere-CSI-K8s-to-VKS-cnsRegisterVolume`](vSphere-CSI-K8s-to-VKS-cnsRegisterVolume) |
-| VKS | Another VKS cluster, Supervisor namespace or vCenter | No filesystem copy; the VKS/Supervisor storage chain is reconstructed | [`VKS-to-VKS-cnsRegisterVolume-and-vMotion`](VKS-to-VKS-cnsRegisterVolume-and-vMotion/) |
+| VKS | Another VKS cluster (including across Supervisor namespaces / vCenter boundaries) | No filesystem copy; the VKS/Supervisor storage chain is reconstructed | [`VKS-to-VKS-cnsRegisterVolume-and-vMotion`](VKS-to-VKS-cnsRegisterVolume-and-vMotion/) |
 
 ## Decision Guide
 
