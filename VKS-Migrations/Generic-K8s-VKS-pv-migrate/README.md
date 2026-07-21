@@ -2,7 +2,7 @@
 
 ## Overview
 
-This validated solution demonstrates how to migrate a stateful application from another Kubernetes distribution to VMware Kubernetes Service (VKS).
+This validated solution demonstrates how to migrate a stateful application from another Kubernetes distribution to VMware vSphere Kubernetes Service (VKS).
 
 The solution separates migration into two independent paths:
 
