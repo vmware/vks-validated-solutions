@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document demonstrates how an existing VMware Kubernetes Service (VKS) Persistent Volume can be migrated between VKS clusters **without copying application data**.
+Here we demonstrate how an existing VMware Kubernetes Service (VKS) Persistent Volume can be migrated between VKS clusters **without copying application data**.
 
 Unlike traditional migration approaches (for example `rsync`, `pv-migrate` or Velero-based workflows), this method preserves the underlying **First Class Disk (FCD)** and reconstructs the Kubernetes storage metadata around it.
 
@@ -12,13 +12,12 @@ The approach can be used to migrate volumes:
 - Between Supervisor namespaces
 - Across vCenters (using cross-vCenter Storage vMotion)
 
-Only the metadata relationships change. The application data remains on the same First Class Disk.
 
 ---
 
 ## Architecture
 
-The storage chain is assumed to be:
+The storage chain with VKS is thus:
 
 ```text
 VKS PV
@@ -33,7 +32,7 @@ Supervisor PV
 First Class Disk (FCD)
 ```
 
-Migration reconstructs this chain while preserving the underlying FCD.
+The migration process effectivley reconstructs this chain while preserving the underlying FCD.
 
 ---
 
@@ -48,7 +47,7 @@ A Supervisor `VolumeSnapshot` protects the Supervisor PVC/PV while the VKS objec
 ```text
 VKS PV
    │
-Supervisor PVC <------ VolumeSnapshot
+Supervisor PVC <-----> VolumeSnapshot
    │
 Supervisor PV
    │
@@ -76,9 +75,9 @@ Limitations
 
 ---
 
-## Option B: Retain Policy
+## Option B: Supervisor PV Retain Policy
 
-Instead of using a snapshot, patch the Supervisor PV reclaim policy to **Retain**, remove its `claimRef`, and create a replacement Supervisor PVC.
+Instead of using a snapshot, patch the Supervisor PV reclaim policy to **Retain**, remove its `claimRef`, and create a replacement Supervisor PVC. This needs to be done on the Supervisor VM (i.e. via vCenter)
 
 Advantages
 
@@ -89,22 +88,23 @@ Limitations
 
 - Requires administrative access to the Supervisor cluster
 - Requires patching Kubernetes resources
+- Supportability concerns
 
 ---
 
 # Cross-vCenter Migration
 
-Once the VKS objects have been removed, the FCD becomes independent of the VKS cluster and may be migrated to another vCenter.
+Once the VKS objects have been removed, the FCD becomes *independent* of the VKS cluster and may be migrated to another vCenter.
 
-The demonstrated workflow is:
+The workflow is:
 
-1. Create a Supervisor VolumeSnapshot (or use the Retain method).
-2. Delete the VKS PVC/PV.
-3. Attach the FCD to a helper VM.
-4. Perform a cross-vCenter Storage vMotion.
-5. Register the migrated FCD with `CnsRegisterVolume`.
-6. Recreate the Supervisor PVC/PV.
-7. Create a new VKS PV/PVC referencing the new Supervisor PVC.
+1. Create a Supervisor VolumeSnapshot (or set Retain on the Supervisor PV)
+2. Delete the VKS PVC/PV
+3. Attach the FCD to a helper VM
+4. Perform a cross-vCenter Storage vMotion
+5. Register the migrated FCD with `CnsRegisterVolume`
+6. Recreate the Supervisor PVC/PV
+7. Create a new VKS PV/PVC referencing the new Supervisor PVC
 
 ```text
 Source vCenter
@@ -113,7 +113,8 @@ FCD
  │
 Helper VM
 
-   Storage vMotion
+   >>> Storage vMotion >>>
+
 
 Destination vCenter
 
@@ -132,7 +133,7 @@ VKS PV
 
 # Validation
 
-Worked examples are provided in **examples.md**.
+Worked examples are provided in [examples.md](examples.md). Runnable shell examples are also included as [same-vcenter-example.sh](same-vcenter-example.sh) and [cross-vcenter-example.sh](cross-vcenter-example.sh).
 
 These examples demonstrate:
 
