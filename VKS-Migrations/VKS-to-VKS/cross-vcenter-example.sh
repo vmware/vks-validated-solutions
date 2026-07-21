@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-### NOTE: Here we assume the FCD has already been migrated ## 
+### NOTE: Here we assume the FCD has already been vMotion'd ## 
 
 : "${DST_SUP_KUBECONFIG:?Set DST_SUP_KUBECONFIG}"
 : "${DST_VKS_KUBECONFIG:?Set DST_VKS_KUBECONFIG}"
