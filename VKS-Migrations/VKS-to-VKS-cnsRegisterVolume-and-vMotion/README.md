@@ -2,7 +2,7 @@
 
 ## Overview
 
-Here we demonstrate how an existing VMware Kubernetes Service (VKS) Persistent Volume can be migrated between VKS clusters **without copying application data**.
+Here we demonstrate how an existing VMware vSphere Kubernetes Service (VKS) Persistent Volume can be migrated between VKS clusters **without copying application data**.
 
 Unlike traditional migration approaches (for example `rsync`, `pv-migrate` or Velero-based workflows), this method preserves the underlying **First Class Disk (FCD)** and reconstructs the Kubernetes storage metadata around it.
 
