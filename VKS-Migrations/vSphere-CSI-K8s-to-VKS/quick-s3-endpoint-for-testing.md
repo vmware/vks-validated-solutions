@@ -156,4 +156,4 @@ aws --endpoint-url "${S3_ENDPOINT}" --no-verify-ssl \
 rm -f s3-test.txt credentials-velero
 ```
 
-Delete the NooBaa installation only after confirming that no Velero backups still depend on it.
+
