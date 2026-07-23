@@ -2,10 +2,10 @@
 
 This directory contains migration patterns, worked examples and supporting scripts for moving stateful Kubernetes workloads to, and between, VMware vSphere Kubernetes Service (VKS) clusters.
 
-Three approaches are provided. The correct choice depends on the source platform, its storage driver and whether the existing vSphere First Class Disk (FCD) can be preserved.
+Three approaches are provided. The correct choice depends on the source platform, its storage driver, and whether the existing vSphere First Class Disk (FCD) can be preserved.
 
 > [!IMPORTANT]
-> These examples demonstrate migration mechanisms rather than universally applicable production automation. Assess application consistency, downtime, rollback, security and product-version compatibility for each workload.
+> These examples demonstrate migration mechanisms rather than universally applicable production automation. Assess application consistency, downtime, rollback, security, and product-version compatibility for each workload.
 
 ## Choose a migration approach
 
@@ -13,37 +13,31 @@ Three approaches are provided. The correct choice depends on the source platform
 |---|---|---|---|
 | A Kubernetes cluster with a mountable filesystem PVC | VKS | Copy the filesystem into a newly provisioned VKS PVC using `pv-migrate` | [`Any-K8s-to-VKS`](Any-K8s-to-VKS/) |
 | A Kubernetes cluster using the vSphere CSI driver | VKS | Retain the existing FCD and register it with the destination Supervisor | [`vSphere-CSI-K8s-to-VKS`](vSphere-CSI-K8s-to-VKS/) |
-| VKS | Another VKS cluster, Supervisor namespace or vCenter | Preserve the FCD and reconstruct the VKS/Supervisor storage chain | [`VKS-to-VKS`](VKS-to-VKS/) |
+| VKS | Another VKS cluster, Supervisor namespace, or vCenter | Preserve the FCD and reconstruct the VKS/Supervisor storage chain | [`VKS-to-VKS`](VKS-to-VKS/) |
 
 ## Decision guide
 
 ```mermaid
 flowchart TD
     START["Where is the workload running?"]
-
-    START -->|"VKS"| VKS["VKS-to-VKS"]
-    START -->|"Another Kubernetes platform"| CSI{
-        "Does the volume use vSphere CSI,<br/>
-        and can the existing FCD be retained?"
-    }
-
-    CSI -->|"Yes"| CAPTURE["vSphere-CSI-K8s-to-VKS"]
-    CSI -->|"No, or a storage-independent<br/>migration is required"| COPY["Any-K8s-to-VKS"]
-
+    START -->|"VKS"| VKS["Use VKS-to-VKS"]
+    START -->|"Another Kubernetes platform"| CSI{"Does the volume use vSphere CSI<br/>and can the existing FCD be retained?"}
+    CSI -->|"Yes"| CAPTURE["Use vSphere-CSI-K8s-to-VKS"]
+    CSI -->|"No, or storage independence is required"| COPY["Use Any-K8s-to-VKS"]
     VKS --> VKS_DETAIL["Reconstruct the VKS → Supervisor → FCD chain"]
     CAPTURE --> CAPTURE_DETAIL["Register the existing FCD with CnsRegisterVolume"]
-    COPY --> COPY_DETAIL["Copy filesystem data with pv-migrate;<br/>migrate application metadata separately"]
+    COPY --> COPY_DETAIL["Copy filesystem data with pv-migrate<br/>and migrate metadata separately"]
 ```
 
 ## Migration approaches
 
 ### Any Kubernetes to VKS
 
-[`Any-K8s-to-VKS`](Any-K8s-to-VKS/) is the portable, filesystem-copy approach.
+[`Any-K8s-to-VKS`](Any-K8s-to-VKS/) is the portable filesystem-copy approach.
 
-It separates the migration into two paths:
+It separates migration into two paths:
 
-- **Application metadata** is restored with Velero or reconstructed using Helm, GitOps or the original deployment process.
+- **Application metadata** is restored with Velero or reconstructed using Helm, GitOps, or the original deployment process.
 - **Persistent data** is copied from the source PVC into a pre-created VKS PVC using `pv-migrate` and `rsync`.
 
 Use this approach when the source and destination use different storage systems, the original disk cannot be adopted directly, or storage-platform independence is required.
@@ -52,23 +46,8 @@ The source and destination must expose compatible filesystem PVCs that can be mo
 
 ```mermaid
 flowchart LR
-    subgraph SOURCE["Source Kubernetes cluster"]
-        APP1["Application resources"]
-        PVC1["Source PVC"]
-    end
-
-    subgraph MIGRATION["Migration paths"]
-        META["Velero / Helm / GitOps"]
-        DATA["pv-migrate / rsync"]
-    end
-
-    subgraph DESTINATION["Destination VKS cluster"]
-        APP2["Restored or reconstructed application"]
-        PVC2["Destination PVC"]
-    end
-
-    APP1 --> META --> APP2
-    PVC1 --> DATA --> PVC2
+    APP1["Source application resources"] --> META["Velero / Helm / GitOps"] --> APP2["Destination application"]
+    PVC1["Source PVC"] --> DATA["pv-migrate / rsync"] --> PVC2["Destination VKS PVC"]
     PVC2 --> APP2
 ```
 
@@ -76,7 +55,7 @@ flowchart LR
 
 [`vSphere-CSI-K8s-to-VKS`](vSphere-CSI-K8s-to-VKS/) reuses an existing vSphere CSI-backed FCD.
 
-The source application is quiesced, the source PV is protected with a `Retain` policy and the disk is detached. `CnsRegisterVolume` then creates the destination Supervisor PVC/PV relationship around the existing FCD. A static VKS PV/PVC exposes that Supervisor volume to the destination workload.
+The source application is quiesced, the source PV is protected with a `Retain` policy, and the disk is detached. `CnsRegisterVolume` then creates the destination Supervisor PVC/PV relationship around the existing FCD. A static VKS PV/PVC exposes that Supervisor volume to the destination workload.
 
 Use this approach when:
 
@@ -86,34 +65,24 @@ Use this approach when:
 
 ```mermaid
 flowchart LR
-    SRC["Source PV<br/>volumeHandle = FCD UUID"]
-    FCD[("Existing vSphere FCD")]
-    REG["CnsRegisterVolume"]
-    SUP["Supervisor PVC / PV"]
-    VKS["Static VKS PV / PVC"]
-
-    SRC --> FCD
-    FCD --> REG --> SUP --> VKS
+    SRC["Source PV<br/>volumeHandle = FCD UUID"] --> FCD[("Existing vSphere FCD")]
+    FCD --> REG["CnsRegisterVolume"]
+    REG --> SUP["Supervisor PVC / PV"]
+    SUP --> VKS["Static VKS PV / PVC"]
 ```
 
 ### VKS to VKS
 
 [`VKS-to-VKS`](VKS-to-VKS/) preserves an existing VKS volume and reconstructs its storage relationships for another VKS cluster.
 
-A VKS PV does not directly reference the FCD. It references a Supervisor PVC, whose bound Supervisor PV references the FCD UUID:
+A VKS PV references a Supervisor PVC. The bound Supervisor PV then references the FCD UUID:
 
 ```mermaid
 flowchart TD
-    VPVC["VKS PVC"]
-    VPV["VKS PV"]
-    SPVC["Supervisor PVC"]
-    SPV["Supervisor PV"]
-    FCD[("First Class Disk")]
-
-    VPVC --> VPV
-    VPV -->|"volumeHandle = Supervisor PVC name"| SPVC
-    SPVC --> SPV
-    SPV -->|"volumeHandle = FCD UUID"| FCD
+    VPVC["VKS PVC"] --> VPV["VKS PV"]
+    VPV -->|"volumeHandle = Supervisor PVC name"| SPVC["Supervisor PVC"]
+    SPVC --> SPV["Supervisor PV"]
+    SPV -->|"volumeHandle = FCD UUID"| FCD[("First Class Disk")]
 ```
 
 Use this approach when migrating:
@@ -132,7 +101,7 @@ No Kubernetes- or filesystem-level data copy is performed. For a cross-vCenter m
 | Source requirement | Mountable filesystem PVC | vSphere CSI-backed PV | Existing VKS volume |
 | Data handling | Filesystem copy | Existing FCD retained | Existing FCD retained |
 | Primary storage tool | `pv-migrate` / `rsync` | `CnsRegisterVolume` | Supervisor storage reconstruction; `CnsRegisterVolume` when required |
-| Application metadata | Velero, Helm, GitOps or redeployment | Velero or redeployment | Migrated or redeployed separately |
+| Application metadata | Velero, Helm, GitOps, or redeployment | Velero or redeployment | Migrated or redeployed separately |
 | Storage independence | High | vSphere-specific | VKS and vSphere-specific |
 | Main downtime driver | Final data synchronisation | Quiesce and disk detachment | Quiesce and storage-chain reconstruction |
 | Cross-vCenter | Data is copied to destination storage | Possible when the FCD is available to the destination | FCD migration followed by destination registration |
@@ -142,15 +111,15 @@ No Kubernetes- or filesystem-level data copy is performed. For a cross-vCenter m
 
 ### Discover before migrating
 
-Record the workloads, namespaces, PVCs, volume modes, access modes, StorageClasses, CSI provisioners, Helm releases, security requirements, external dependencies and application-specific shutdown procedures.
+Record the workloads, namespaces, PVCs, volume modes, access modes, StorageClasses, CSI provisioners, Helm releases, security requirements, external dependencies, and application-specific shutdown procedures.
 
 ### Treat metadata and persistent data separately
 
-Kubernetes resources and persistent storage have different portability constraints. Do not blindly restore source PV and PVC objects into VKS. Use the selected storage workflow to prepare the destination volume, and restore or reconstruct the application around it.
+Kubernetes resources and persistent storage have different portability constraints. Do not blindly restore source PV and PVC objects into VKS. Use the selected storage workflow to prepare the destination volume, then restore or reconstruct the application around it.
 
 ### Quiesce for the final cutover
 
-A copied or preserved disk is not necessarily application-consistent. Use the application's supported shutdown, checkpoint or backup procedure before the final storage operation.
+A copied or preserved disk is not necessarily application-consistent. Use the application's supported shutdown, checkpoint, or backup procedure before the final storage operation.
 
 ### Validate before removing the source
 
@@ -161,15 +130,15 @@ At minimum, confirm:
 - Application data is present and writable.
 - Services and ingress are reachable.
 - Authentication and external integrations work.
-- Helm, GitOps or package-manager state is healthy.
+- Helm, GitOps, or package-manager state is healthy.
 - The agreed rollback and retention period has elapsed.
 
 ## Support and validation
 
 Before using these patterns:
 
-1. Confirm compatibility with the source and destination Kubernetes, VKS, vCenter and CSI versions.
+1. Confirm compatibility with the source and destination Kubernetes, VKS, vCenter, and CSI versions.
 2. Review third-party tools under your organisation's support and security policies.
 3. Rehearse migration and rollback with representative data.
-4. Confirm storage policy, networking, security and quota requirements.
+4. Confirm storage policy, networking, security, and quota requirements.
 5. Retain an independent, application-consistent backup.
