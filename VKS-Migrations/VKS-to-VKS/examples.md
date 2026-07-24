@@ -323,10 +323,21 @@ kind: Pod
 metadata:
   name: migration-test-reader
 spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
   restartPolicy: Never
   containers:
     - name: reader
       image: busybox:1.36
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
       command: ["sh", "-c"]
       args: ["cat /data/migration-test.txt && sleep 3600"]
       volumeMounts:
