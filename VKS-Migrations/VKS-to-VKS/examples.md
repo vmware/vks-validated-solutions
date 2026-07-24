@@ -95,15 +95,27 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: migration-test-writer
+  namespace: $SRC_VKS_NS
 spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
   restartPolicy: Never
   containers:
     - name: writer
       image: busybox:1.36
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
       command: ["sh", "-c"]
       args:
         - |
-          echo "VKS migration test $(date -u +%FT%TZ)" > /data/migration-test.txt
+          echo "VKS migration test \$(date -u +%FT%TZ)" > /data/migration-test.txt
           sync
           cat /data/migration-test.txt
           sleep 3600
