@@ -6,6 +6,8 @@ It contains specific documentation, scripts, or configuration files tailored to 
 
 ## Topology Diagram
 
+Note: a detailed SVG is available in the folder [TopologyDiagram](TopologyDiagram/)
+
 ```mermaid
 flowchart TB
     subgraph NS["Namespace: appzillon (VMware VKS)"]
