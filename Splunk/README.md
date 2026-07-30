@@ -44,7 +44,6 @@ about the deliberate host access are expected during installation.
 ```bash
 helm repo add splunk-otel-collector-chart \
   https://signalfx.github.io/splunk-otel-collector-chart
-helm repo update
 ```
 
 Pin the chart version used by this example. Version `0.157.0` was current when
@@ -64,7 +63,7 @@ manifests.
 kubectl apply -f namespace.yaml
 ```
 
-Do not replace this with Helm's `--create-namespace`: the PSA labels must exist
+Note: do not replace this with Helm's `--create-namespace`: the PSA labels must exist
 before the chart submits its workloads.
 
 ## 3. Set the cluster values
@@ -131,6 +130,7 @@ helm upgrade --install splunk-otel-collector \
   --namespace splunk-otel \
   --values vks-values.yaml \
   --values cluster-values.yaml \
+  --values vks-loopback-control-plane-values.yaml \
   --atomic \
   --timeout 10m
 ```
@@ -138,64 +138,6 @@ helm upgrade --install splunk-otel-collector \
 There is no need to set `gateway.enabled=false`; `false` is already the chart
 default.
 
-## Optional: loopback-bound control-plane metrics
-
-Ordinary node metrics need no extra values. The chart already collects them
-with its host-metrics and kubelet-stats receivers.
-
-Kube-proxy, kube-scheduler, and kube-controller-manager metrics are control-plane
-component metrics. The chart also enables these by default and uses a
-node-scoped receiver creator to discover the relevant pods. Start with the
-normal installation above.
-
-Check the agent logs if those component metrics are absent:
-
-```bash
-kubectl --namespace splunk-otel logs \
-  --selector app.kubernetes.io/instance=splunk-otel-collector \
-  --all-containers \
-  --prefix \
-  --tail=200 |
-grep -E 'receiver_creator|10249|10257|10259'
-```
-
-If the logs show connection failures to the discovered addresses, confirm how
-the VKS components expose their metrics:
-
-```bash
-kubectl --namespace kube-system get pods \
-  --selector component=kube-scheduler \
-  --output=yaml |
-grep -- '--bind-address'
-
-kubectl --namespace kube-system get pods \
-  --selector component=kube-controller-manager \
-  --output=yaml |
-grep -- '--bind-address'
-
-kubectl --namespace kube-system get configmap kube-proxy \
-  --output=yaml |
-grep -i metricsBindAddress
-```
-
-When the listeners are bound to `127.0.0.1`, add the optional overlay to both
-the render check and installation:
-
-```bash
---values vks-values.yaml \
---values cluster-values.yaml \
---values vks-loopback-control-plane-values.yaml
-```
-
-The overlay changes only the three existing receiver-creator scrape targets.
-It retains the chart's discovery rules, authentication, TLS handling, and
-metric filters. Do not instead add standalone Prometheus receivers under
-`agent.config.receivers`: they are not collected unless added to a metrics
-pipeline, and wiring them globally would make every worker node attempt to
-scrape control-plane-only listeners.
-
-The overlay repeats list-valued configuration from chart version `0.157.0`.
-Review it against the chart template whenever `CHART_VERSION` is changed.
 
 ## 7. Verify
 
