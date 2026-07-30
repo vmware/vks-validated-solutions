@@ -1,0 +1,80 @@
+# Optional VKS compatibility overlay for control-plane components whose metrics
+# listeners are bound to the node loopback interface.
+#
+# Do not use this file by default. The chart already enables these receivers and
+# normally discovers their pod IPs. Use this overlay only when collector logs
+# show connection failures for ports 10249, 10257, or 10259 and the corresponding
+# VKS components are confirmed to listen on 127.0.0.1.
+#
+# This overrides the chart's scrape_configs lists, so it deliberately repeats
+# the chart 0.157.0 metric filters. Review it whenever CHART_VERSION is changed.
+# The surrounding receiver_creator rules remain chart-managed; consequently the
+# scheduler and controller-manager receivers are only created on matching nodes.
+agent:
+  config:
+    receivers:
+      receiver_creator:
+        receivers:
+          prometheus/kubernetes-proxy:
+            config:
+              config:
+                scrape_configs:
+                  - job_name: kubernetes-proxy
+                    scrape_interval: 10s
+                    static_configs:
+                      - targets:
+                          - 127.0.0.1:10249
+                    metric_relabel_configs:
+                      - source_labels:
+                          - __name__
+                        action: keep
+                        regex: '(kubeproxy_sync_proxy_rules_iptables_restore_failures_total|kubeproxy_sync_proxy_rules_service_changes_total|kubeproxy_sync_proxy_rules_service_changes_pending|kubeproxy_sync_proxy_rules_duration_seconds|kubeproxy_network_programming_duration_seconds)(?:_sum|_count|_bucket)?'
+                      - source_labels:
+                          - __name__
+                          - le
+                        action: drop
+                        regex: 'kubeproxy_network_programming_duration_seconds_bucket;([1-3][1-46-9]|[4-9][1-9]|100|110|115|270)\.0'
+
+          prometheus/kubernetes-scheduler:
+            config:
+              config:
+                scrape_configs:
+                  - job_name: kubernetes-scheduler
+                    scrape_interval: 10s
+                    static_configs:
+                      - targets:
+                          - 127.0.0.1:10259
+                    scheme: https
+                    tls_config:
+                      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                      insecure_skip_verify: true
+                    authorization:
+                      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+                      type: Bearer
+                    metric_relabel_configs:
+                      - source_labels:
+                          - __name__
+                        action: keep
+                        regex: '(rest_client_request_duration_seconds|rest_client_requests_total|scheduler_pending_pods|scheduler_schedule_attempts_total|scheduler_queue_incoming_pods_total|scheduler_preemption_attempts_total|scheduler_scheduling_algorithm_duration_seconds|scheduler_pod_scheduling_sli_duration_seconds)(?:_sum|_count|_bucket)?'
+
+          prometheus/kube-controller-manager:
+            config:
+              config:
+                scrape_configs:
+                  - job_name: kube-controller-manager
+                    scrape_interval: 10s
+                    static_configs:
+                      - targets:
+                          - 127.0.0.1:10257
+                    scheme: https
+                    authorization:
+                      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+                      type: Bearer
+                    tls_config:
+                      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                      insecure_skip_verify: true
+                    metric_relabel_configs:
+                      - source_labels:
+                          - __name__
+                        action: keep
+                        regex: '(workqueue_longest_running_processor_seconds|workqueue_unfinished_work_seconds|workqueue_depth|workqueue_retries_total|workqueue_queue_duration_seconds)(?:_sum|_count|_bucket)?'

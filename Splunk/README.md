@@ -12,6 +12,8 @@ The example is intentionally small:
 - `vks-values.yaml` contains only the deliberate VKS non-root override.
 - `cluster-values.example.yaml` contains the values that differ between
   clusters.
+- `vks-loopback-control-plane-values.yaml` is an optional compatibility overlay
+  for VKS control-plane metrics listeners bound to `127.0.0.1`.
 
 The chart creates its own ServiceAccount, ClusterRole, and ClusterRoleBinding.
 The identity running Helm therefore needs permission to create cluster-scoped
@@ -136,6 +138,65 @@ helm upgrade --install splunk-otel-collector \
 There is no need to set `gateway.enabled=false`; `false` is already the chart
 default.
 
+## Optional: loopback-bound control-plane metrics
+
+Ordinary node metrics need no extra values. The chart already collects them
+with its host-metrics and kubelet-stats receivers.
+
+Kube-proxy, kube-scheduler, and kube-controller-manager metrics are control-plane
+component metrics. The chart also enables these by default and uses a
+node-scoped receiver creator to discover the relevant pods. Start with the
+normal installation above.
+
+Check the agent logs if those component metrics are absent:
+
+```bash
+kubectl --namespace splunk-otel logs \
+  --selector app.kubernetes.io/instance=splunk-otel-collector \
+  --all-containers \
+  --prefix \
+  --tail=200 |
+grep -E 'receiver_creator|10249|10257|10259'
+```
+
+If the logs show connection failures to the discovered addresses, confirm how
+the VKS components expose their metrics:
+
+```bash
+kubectl --namespace kube-system get pods \
+  --selector component=kube-scheduler \
+  --output=yaml |
+grep -- '--bind-address'
+
+kubectl --namespace kube-system get pods \
+  --selector component=kube-controller-manager \
+  --output=yaml |
+grep -- '--bind-address'
+
+kubectl --namespace kube-system get configmap kube-proxy \
+  --output=yaml |
+grep -i metricsBindAddress
+```
+
+When the listeners are bound to `127.0.0.1`, add the optional overlay to both
+the render check and installation:
+
+```bash
+--values vks-values.yaml \
+--values cluster-values.yaml \
+--values vks-loopback-control-plane-values.yaml
+```
+
+The overlay changes only the three existing receiver-creator scrape targets.
+It retains the chart's discovery rules, authentication, TLS handling, and
+metric filters. Do not instead add standalone Prometheus receivers under
+`agent.config.receivers`: they are not collected unless added to a metrics
+pipeline, and wiring them globally would make every worker node attempt to
+scrape control-plane-only listeners.
+
+The overlay repeats list-valued configuration from chart version `0.157.0`.
+Review it against the chart template whenever `CHART_VERSION` is changed.
+
 ## 7. Verify
 
 ```bash
@@ -169,3 +230,9 @@ This example retains the original non-root intent by setting UID and GID
 access. To use the upstream root default instead, omit `vks-values.yaml` from
 the render and install commands. The namespace must remain `privileged` because
 the host network, host ports, and host-path mounts are independent of UID.
+
+## Upstream references
+
+- [Splunk chart values](https://github.com/signalfx/splunk-otel-collector-chart/blob/main/helm-charts/splunk-otel-collector/values.yaml)
+- [Control-plane metrics guidance](https://github.com/signalfx/splunk-otel-collector-chart/blob/main/docs/advanced-configuration.md#control-plane-metrics)
+- [Default agent receiver configuration](https://github.com/signalfx/splunk-otel-collector-chart/blob/main/helm-charts/splunk-otel-collector/templates/config/_otel-agent.tpl)
