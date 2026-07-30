@@ -1,3 +1,15 @@
+# hybrid-runner-method2.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: coherent-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -15,7 +27,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: hybrid-runner
-# namespace: core-testing
+# namespace: coherent-spark
 spec:
   replicas: 1
   selector:
@@ -35,7 +47,7 @@ spec:
               app.kubernetes.io/name: hybrid-runner
       containers:
         - name: hybrid-runner
-          image: ghcr.io/coherent-partners/nodegen-server:v1.53.4
+          image: ghcr.io/coherent-partners/nodegen-server:v1.54.1
           ports:
             - containerPort: 3000
           env:
@@ -51,6 +63,18 @@ spec:
               value: 'false'
             - name: UPLOAD_ENABLED
               value: 'true'
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
           resources:
             requests:
               cpu: '1'
@@ -79,7 +103,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: hybrid-runner-hpa
-# namespace: core-testing
+# namespace: coherent-spark
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
