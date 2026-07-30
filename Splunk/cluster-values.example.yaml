@@ -1,0 +1,19 @@
+# Copy this file to cluster-values.yaml and change the values for the target
+# VKS cluster. Do not put the access token in this file.
+
+# VKS is not an auto-detected distribution in the Splunk chart, so this is
+# required and becomes the k8s.cluster.name attribute.
+clusterName: vks-test
+
+# This means deployment lifecycle, not Kubernetes distribution. Typical values
+# are development, test, staging, and production.
+environment: test
+
+splunkObservability:
+  realm: eu0
+
+# The Secret is created separately so that the token is not stored in Helm
+# values or in the Helm release history.
+secret:
+  create: false
+  name: splunk-otel-credentials
