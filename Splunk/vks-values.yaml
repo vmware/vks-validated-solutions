@@ -1,9 +1,9 @@
-# Deliberate VKS override: run the collector agent as a non-root user.
+# Helm override to run the collector agent as a non-root user
 #
 # The Splunk chart adds an init container which adjusts access to the node log
-# directories when both values below are non-zero. This is supported with the
-# containerd runtime used by VKS. It is defence in depth; it does not remove the
-# need for the namespace's privileged Pod Security Admission level.
+# directories when both values below are non-zero. 
+# 
+# This does not remove the need for the namespace's privileged PSA level
 agent:
   securityContext:
     runAsUser: 20000
