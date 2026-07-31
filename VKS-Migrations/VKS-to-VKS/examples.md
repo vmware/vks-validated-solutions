@@ -193,7 +193,7 @@ sup-src get pv "$SUP_PV" \
 
 ## 4. Quiesce the source workload
 
-Stop all pods that write to the PVC. 
+Stop all pods that write to the PVC. <br>
 In this example, the pod is deleted:
 
 ```bash
