@@ -195,7 +195,7 @@ sup-src get pv "$SUP_PV" \
 
 Stop all workloads that write to the PVC. <br>
 
-**For an application deployment or StatefulSet, scale it to zero instead and verify that the PVC is no longer mounted.** <br><br>
+**For an application deployment or StatefulSet, scale it to zero and verify that the PVC is no longer mounted.** <br><br>
 
 In this example, the pod is deleted:
 ```bash
