@@ -193,7 +193,8 @@ sup-src get pv "$SUP_PV" \
 
 ## 4. Quiesce the source workload
 
-Stop all pods that write to the PVC. The example pod is deleted here:
+Stop all pods that write to the PVC. 
+In this example, the pod is deleted:
 
 ```bash
 vks-src -n "$SRC_VKS_NS" delete pod migration-test-writer \
