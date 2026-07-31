@@ -269,7 +269,7 @@ The final command must still return the original FCD UUID.
 
 ## 7. Create the destination VKS PV and PVC
 
-On the *destination VKS cluster* create a PV and PVC <br>
+On the **destination VKS cluster** create a PV and PVC <br>
 Use a static PV with `storageClassName: ""` to prevent dynamic provisioning. The PV handle points to the existing Supervisor PVC.
 
 ```bash
