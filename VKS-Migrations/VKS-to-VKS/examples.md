@@ -200,7 +200,7 @@ vks-src -n "$SRC_VKS_NS" delete pod migration-test-writer \
   --wait=true
 ```
 
-For an application deployment or StatefulSet, scale it to zero instead and verify that the PVC is no longer mounted.
+**For an application deployment or StatefulSet, scale it to zero instead and verify that the PVC is no longer mounted.**
 
 ```bash
 vks-src get volumeattachments \
