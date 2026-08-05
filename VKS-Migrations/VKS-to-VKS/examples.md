@@ -299,23 +299,17 @@ If the destination VKS cluster is associated with a different Supervisor namespa
 The required transition is:
 
 ```text
-Source Supervisor namespace                 Destination Supervisor namespace
+Source Supervisor namespace                        Destination Supervisor namespace
+===========================                        =================================
 
-Supervisor PVC (old)
-        │
-        ▼
-Supervisor PV ────────── FCD
-        │
-        │  delete old PVC
-        │  clear old PV claimRef
-        │
-        └────────────────────────────────────► New Supervisor PVC
-                                                │
-                                                ▼
-                                          same Supervisor PV
-                                                │
-                                                ▼
-                                              same FCD
+Supervisor PVC (old)    <--- delete / create--->    Supervisor PVC (new)
+        x                                                  │
+        x                                                  │
+        x ----------------->  Supervisor PV <==============│
+                            [remove claimRef]
+                                    │
+                                    ▼
+                                   FCD
 ```
 
 #### 7.1 Record the source Supervisor PVC properties
