@@ -15,6 +15,7 @@ The examples assume a filesystem volume with `ReadWriteOnce` access. Adjust `vol
 The workstation running these commands requires:
 
 - `kubectl`
+- `velero`
 - Valid kubeconfig files for the source and destination VKS clusters
 - Valid kubeconfig files for the source and destination Supervisors
 - Permission to read and create PVs, PVCs and VolumeSnapshots
@@ -81,6 +82,9 @@ export DST_SUP_PVC=my-test-pvc-migrated-supervisor
 
 # Used only for the same-Supervisor-namespace snapshot path.
 export SUP_SNAPSHOT_CLASS=volumesnapshotclass-delete
+
+export BACKUP_NAME="vks-migration-${SRC_VKS_NS}"
+export RESTORE_NAME="vks-migration-${DST_VKS_NS}"
 ```
 
 ## 2. Create a test volume and write identifiable data
@@ -225,7 +229,31 @@ vks-src get volumeattachments \
 
 Do not continue while the source volume remains attached to a running workload.
 
-## 5. Select the preservation path
+## 5. Create a manifest-only Velero backup
+
+Velero handles the Kubernetes object path independently from the storage migration. PVs, PVCs and snapshot objects are deliberately excluded because the destination storage relationship is reconstructed separately.
+
+```bash
+velero backup create "$BACKUP_NAME" \
+  --kubeconfig "$SRC_VKS_KUBECONFIG" \
+  --include-namespaces "$SRC_VKS_NS" \
+  --include-cluster-resources=false \
+  --snapshot-volumes=false \
+  --exclude-resources \
+persistentvolumes,persistentvolumeclaims,volumesnapshots.snapshot.storage.k8s.io,volumesnapshotcontents.snapshot.storage.k8s.io \
+  --wait
+
+velero backup describe "$BACKUP_NAME" \
+  --kubeconfig "$SRC_VKS_KUBECONFIG" \
+  --details
+```
+
+Do not continue until the backup reports `Completed` and any warnings have been reviewed.
+
+> [!IMPORTANT]
+> This Velero backup protects application manifests and metadata only. Persistent data is preserved by the storage workflow below.
+
+## 6. Select the preservation path
 
 ```bash
 if [ "$SRC_SUP_NS" = "$DST_SUP_NS" ]; then
@@ -299,7 +327,7 @@ test "$CURRENT_FCD_UUID" = "$FCD_UUID" || {
 export DEST_VOLUME_HANDLE="$SUP_PVC"
 ```
 
-Continue to [Create the destination VKS PV and PVC](#6-create-the-destination-vks-pv-and-pvc).
+Continue to [Create the destination VKS PV and PVC](#7-create-the-destination-vks-pv-and-pvc).
 
 ---
 
@@ -512,7 +540,7 @@ export DEST_VOLUME_HANDLE="$DST_SUP_PVC"
 
 ---
 
-## 6. Create the destination VKS PV and PVC
+## 7. Create the destination VKS PV and PVC
 
 For either path, the VKS PV `volumeHandle` must be the Supervisor PVC visible to the destination VKS cluster:
 
@@ -565,7 +593,27 @@ vks-dst -n "$DST_VKS_NS" wait \
   --timeout=5m
 ```
 
-## 7. Mount the migrated volume and verify the data
+## 8. Restore application manifests
+
+Restore application metadata only after the destination VKS PV/PVC has been created.
+
+```bash
+velero restore create "$RESTORE_NAME" \
+  --kubeconfig "$DST_VKS_KUBECONFIG" \
+  --from-backup "$BACKUP_NAME" \
+  --namespace-mappings "${SRC_VKS_NS}:${DST_VKS_NS}" \
+  --exclude-resources \
+persistentvolumes,persistentvolumeclaims,volumesnapshots.snapshot.storage.k8s.io,volumesnapshotcontents.snapshot.storage.k8s.io \
+  --wait
+
+velero restore describe "$RESTORE_NAME" \
+  --kubeconfig "$DST_VKS_KUBECONFIG" \
+  --details
+```
+
+If the application is managed by Helm, GitOps or another package manager, reconstructing the application from that source of truth may be preferable. In either case, verify that restored workloads reference `${DST_VKS_PVC}` where the destination claim name differs.
+
+## 9. Mount the migrated volume and verify the data
 
 ```bash
 vks-dst -n "$DST_VKS_NS" apply -f - <<EOF_READER
@@ -600,7 +648,7 @@ vks-dst -n "$DST_VKS_NS" exec migration-test-reader -- \
 
 The output should match the content written on the source cluster.
 
-## 8. Cleanup after validation
+## 10. Cleanup after validation
 
 Delete the test reader after validation:
 
@@ -650,6 +698,9 @@ export REGISTER_NAME=vc-fcd-migration
 export DST_SUP_PVC=migrated-cross-supervisor-pvc
 export DST_VKS_PV=migrated-cross-vcenter-pv
 export DST_VKS_PVC=migrated-cross-vcenter-pvc
+
+export BACKUP_NAME="vks-cross-vcenter-${SRC_VKS_NS}"
+export RESTORE_NAME="vks-cross-vcenter-${DST_VKS_NS}"
 ```
 
 ## 2. Discover the source storage chain
@@ -693,29 +744,77 @@ printf '%-18s %s\n' \
 
 Scale the application to zero or otherwise stop all writes. Confirm that no pod is using the PVC before continuing.
 
-## 4. Create and verify the source Supervisor snapshot
+Check for remaining VKS `VolumeAttachment` objects:
 
 ```bash
-export SUP_SNAPSHOT="${SUP_PVC}-migration-snapshot"
-
-sup-src -n "$SRC_SUP_NS" apply -f - <<EOF_SNAPSHOT
-apiVersion: snapshot.storage.k8s.io/v1
-kind: VolumeSnapshot
-metadata:
-  name: ${SUP_SNAPSHOT}
-spec:
-  volumeSnapshotClassName: ${SUP_SNAPSHOT_CLASS}
-  source:
-    persistentVolumeClaimName: ${SUP_PVC}
-EOF_SNAPSHOT
-
-sup-src -n "$SRC_SUP_NS" wait \
-  --for=jsonpath='{.status.readyToUse}'=true \
-  "volumesnapshot/${SUP_SNAPSHOT}" \
-  --timeout=10m
+vks-src get volumeattachments \
+  -o custom-columns=NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName \
+  | grep -F "$SRC_VKS_PV" || true
 ```
 
-## 5. Delete the source VKS PVC and PV
+Do not continue while the volume remains attached to a source workload.
+
+## 4. Create a manifest-only Velero backup
+
+```bash
+velero backup create "$BACKUP_NAME" \
+  --kubeconfig "$SRC_VKS_KUBECONFIG" \
+  --include-namespaces "$SRC_VKS_NS" \
+  --include-cluster-resources=false \
+  --snapshot-volumes=false \
+  --exclude-resources \
+persistentvolumes,persistentvolumeclaims,volumesnapshots.snapshot.storage.k8s.io,volumesnapshotcontents.snapshot.storage.k8s.io \
+  --wait
+
+velero backup describe "$BACKUP_NAME" \
+  --kubeconfig "$SRC_VKS_KUBECONFIG" \
+  --details
+```
+
+The Velero backup handles application metadata only. The FCD is preserved independently by the storage workflow.
+
+## 5. Retain the source Supervisor PV
+
+For a cross-vCenter migration, do **not** use a Supervisor `VolumeSnapshot` as the retention mechanism. The source Supervisor PVC must be removed before moving the FCD, and vSphere CSI blocks PVC deletion while snapshots exist.
+
+Obtain a privileged source Supervisor context capable of patching cluster-scoped PVs:
+
+```bash
+export SRC_SUP_ADMIN_KUBECONFIG="$HOME/source-supervisor-admin-kubeconfig"
+alias sup-admin='kubectl --kubeconfig=${SRC_SUP_ADMIN_KUBECONFIG}'
+
+sup-admin auth can-i patch pv "$SUP_PV"
+```
+
+Set the Supervisor PV to `Retain`:
+
+```bash
+sup-admin patch pv "$SUP_PV" \
+  --type=merge \
+  -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+
+test "$(
+  sup-admin get pv "$SUP_PV" \
+    -o jsonpath='{.spec.persistentVolumeReclaimPolicy}'
+)" = "Retain" || {
+  echo "ERROR: Supervisor PV is not Retain" >&2
+  exit 1
+}
+```
+
+Verify the FCD identity:
+
+```bash
+test "$(
+  sup-admin get pv "$SUP_PV" \
+    -o jsonpath='{.spec.csi.volumeHandle}'
+)" = "$SRC_FCD_UUID" || {
+  echo "ERROR: unexpected source FCD UUID" >&2
+  exit 1
+}
+```
+
+Delete the source VKS PVC and PV:
 
 ```bash
 vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" --wait=true
@@ -723,12 +822,28 @@ vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" --wait=true
 if vks-src get pv "$SRC_VKS_PV" >/dev/null 2>&1; then
   vks-src delete pv "$SRC_VKS_PV" --wait=true
 fi
-
-sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC"
-sup-src get pv "$SUP_PV"
 ```
 
-Do not proceed unless the Supervisor objects still exist and the Supervisor PV still references `${SRC_FCD_UUID}`.
+If the source Supervisor PVC remains, delete it explicitly:
+
+```bash
+if sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" >/dev/null 2>&1; then
+  sup-src -n "$SRC_SUP_NS" delete pvc "$SUP_PVC" --wait=true
+fi
+```
+
+The retained Supervisor PV and FCD must remain:
+
+```bash
+sup-admin get pv "$SUP_PV"
+
+test "$(
+  sup-admin get pv "$SUP_PV" \
+    -o jsonpath='{.spec.csi.volumeHandle}'
+)" = "$SRC_FCD_UUID"
+```
+
+The retained Supervisor PV may remain `Released` with the old `claimRef`. That does not need to be cleared for the cross-vCenter path because the source PV is not rebound locally.
 
 ## 6. Create a powered-off helper VM and attach the FCD
 
@@ -912,7 +1027,27 @@ vks-dst -n "$DST_VKS_NS" wait \
   --timeout=5m
 ```
 
-## 12. Mount the volume and validate the migrated data
+## 12. Restore application manifests
+
+Restore application metadata only after the destination VKS PV/PVC has been reconstructed:
+
+```bash
+velero restore create "$RESTORE_NAME" \
+  --kubeconfig "$DST_VKS_KUBECONFIG" \
+  --from-backup "$BACKUP_NAME" \
+  --namespace-mappings "${SRC_VKS_NS}:${DST_VKS_NS}" \
+  --exclude-resources \
+persistentvolumes,persistentvolumeclaims,volumesnapshots.snapshot.storage.k8s.io,volumesnapshotcontents.snapshot.storage.k8s.io \
+  --wait
+
+velero restore describe "$RESTORE_NAME" \
+  --kubeconfig "$DST_VKS_KUBECONFIG" \
+  --details
+```
+
+For Helm- or GitOps-managed applications, reconstructing the application from its original source of truth may be preferable. Verify that restored workloads reference `${DST_VKS_PVC}` where required.
+
+## 13. Mount the volume and validate the migrated data
 
 ```bash
 vks-dst -n "$DST_VKS_NS" apply -f - <<EOF_READER
@@ -947,7 +1082,7 @@ vks-dst -n "$DST_VKS_NS" exec cross-vcenter-migration-reader -- \
 
 Validate application-level consistency before accepting the migration.
 
-## 13. Detach and remove the helper VM
+## 14. Detach and remove the helper VM
 
 After the FCD has been registered and the destination workload validated, remove the disk from the helper VM without deleting the backing disk, then delete the helper VM.
 
@@ -964,7 +1099,7 @@ govc vm.destroy "$HELPER_VM"
 
 Confirm that the FCD and destination PVC remain present before deleting the VM.
 
-## 14. Source cleanup
+## 15. Source cleanup
 
 Complete source cleanup only after destination validation and migration acceptance.
 
@@ -1007,7 +1142,7 @@ Before declaring the migration complete, confirm all of the following:
 
 - [ ] The source workload was quiesced before storage metadata was changed.
 - [ ] The original VKS PV, Supervisor PVC, Supervisor PV and FCD UUID were recorded.
-- [ ] The Supervisor snapshot reached `readyToUse: true`, or the Supervisor PV was explicitly retained.
+- [ ] The correct preservation method was used: snapshot for same-Supervisor-namespace migration, or Supervisor PV `Retain` for cross-namespace/cross-vCenter migration.
 - [ ] The destination Supervisor PV references the expected FCD UUID.
 - [ ] The destination VKS PVC is `Bound`.
 - [ ] The volume mounts successfully in the destination VKS cluster.
