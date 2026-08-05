@@ -1,0 +1,91 @@
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: cluster-vks
+spec:
+  clusterNetwork:
+    services:
+      cidrBlocks: ["10.96.0.0/12"]
+    pods:
+      cidrBlocks: ["192.168.0.0/16"]
+    serviceDomain: "cluster.local"
+  topology:
+    classRef:
+      name: builtin-generic-v3.6.0
+    version: v1.35.0+vmware.2-vkr.4
+    controlPlane:
+      replicas: 1
+      metadata:
+        annotations:
+          run.tanzu.vmware.com/resolve-os-image: os-name=ubuntu,os-version=24.04
+    workers:
+      machineDeployments:
+        - class: node-pool
+          metadata:
+            annotations:
+              run.tanzu.vmware.com/resolve-os-image: os-name=ubuntu,os-version=24.04
+          name: node-pool-1
+          replicas: 1
+          variables:
+            overrides:
+            - name: vmClass
+              value: best-effort-large
+            - name: node
+              value:
+                labels:
+                  topology.kubernetes.io/region: rack1
+            - name: volumes
+              value:
+              - capacity: 100Gi
+                mountPath: /var/lib/containerd
+                name: containerd
+                storageClass: vsan-esa-default-policy-raid5
+        - class: node-pool
+          metadata:
+            annotations:
+              run.tanzu.vmware.com/resolve-os-image: os-name=ubuntu,os-version=24.04
+          name: node-pool-2
+          replicas: 1
+          variables:
+            overrides:
+            - name: vmClass
+              value: best-effort-large
+            - name: node
+              value:
+                labels:
+                  topology.kubernetes.io/region: rack2
+            - name: volumes
+              value:
+              - capacity: 100Gi
+                mountPath: /var/lib/containerd
+                name: containerd
+                storageClass: vsan-esa-default-policy-raid5
+        - class: node-pool
+          metadata:
+            annotations:
+              run.tanzu.vmware.com/resolve-os-image: os-name=ubuntu,os-version=24.04
+          name: node-pool-3
+          replicas: 1
+          variables:
+            overrides:
+            - name: vmClass
+              value: best-effort-large
+            - name: node
+              value:
+                labels:
+                  topology.kubernetes.io/region: rack3
+            - name: volumes
+              value:
+              - capacity: 100Gi
+                mountPath: /var/lib/containerd
+                name: containerd
+                storageClass: vsan-esa-default-policy-raid5
+    variables:
+      - name: vmClass
+        value: best-effort-medium
+      - name: storageClass
+        value: vsan-esa-default-policy-raid5
+      - name: vsphereOptions
+        value:
+          persistentVolumes:
+            defaultStorageClass: vsan-esa-default-policy-raid5
