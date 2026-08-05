@@ -44,6 +44,16 @@ This integration provisions a VKS cluster purpose-built for CockroachDB's distri
 
 ## Validation and Testing
 
+Run the bundled validation script with your kubectl context set to the workload cluster:
+
+```bash
+./scripts/validate.sh
+```
+
+It checks node readiness, rack topology labels across all three fault domains, the vSAN ESA storage class and default-class configuration, and — once CockroachDB is deployed — pod health and rack-balanced replica placement.
+
+Manual equivalents:
+
 - Confirm all three worker nodes are `Ready` and labeled correctly:
 
   ```bash
