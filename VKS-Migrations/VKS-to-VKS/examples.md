@@ -35,18 +35,23 @@ sup-dst cluster-info
 
 # Example 1: Migrate Between VKS Clusters on the Same vCenter
 
-This example preserves the underlying Supervisor PV/FCD with a VolumeSnapshot, removes the source VKS objects, and then re-adopts the volume in the destination VKS cluster.
+This example re-adopts an existing FCD in another VKS cluster without copying the filesystem data.
 
-There are two distinct same-vCenter cases:
+There are two distinct same-vCenter cases, and they require different preservation methods:
 
-1. **Source and destination VKS clusters use the same Supervisor namespace.**  
-   The existing Supervisor PVC can be reused.
-
-2. **Source and destination VKS clusters use different Supervisor namespaces.**  
-   The source Supervisor PVC must be removed and a replacement Supervisor PVC created in the destination Supervisor namespace. The retained Supervisor PV must first have its old `claimRef` removed, otherwise the new PVC will remain unbound.
+| Destination | Preservation method | Privileged Supervisor access |
+|---|---|---|
+| VKS cluster using the **same Supervisor namespace** | Create a Supervisor `VolumeSnapshot` and reuse the existing Supervisor PVC | No additional cluster-scoped PV modification |
+| VKS cluster using a **different Supervisor namespace** | Set the Supervisor PV reclaim policy to `Retain`, allow/remove the old Supervisor PVC, clear the retained PV `claimRef`, and bind a new Supervisor PVC in the destination namespace | **Required** |
 
 > [!IMPORTANT]
-> A Supervisor PVC is namespace-scoped. A destination VKS cluster associated with a different Supervisor namespace cannot simply reference the source namespace's Supervisor PVC. The storage chain must be re-formed in the destination Supervisor namespace.
+> Do not use the snapshot-preservation path when moving the volume to a different Supervisor namespace. vSphere CSI prevents deletion of a Supervisor PVC while snapshots of that volume exist:
+>
+> ```text
+> Deleting volume with snapshots is not allowed
+> ```
+>
+> A cross-namespace migration therefore requires the Supervisor PV `Retain` and rebind workflow.
 
 ## 1. Configure kubeconfigs and variables
 
@@ -63,8 +68,7 @@ alias sup-dst='kubectl --kubeconfig=${SUPERVISOR_KUBECONFIG}'
 export SRC_VKS_NS=default
 export DST_VKS_NS=default
 
-# Supervisor namespace associated with each VKS cluster.
-# These may be the same or different.
+# Supervisor namespaces associated with the source and destination VKS clusters.
 export SRC_SUP_NS=migration-source
 export DST_SUP_NS=migration-target
 
@@ -72,17 +76,11 @@ export SRC_VKS_PVC=my-test-pvc
 export DST_VKS_PV=my-test-pv-migrated
 export DST_VKS_PVC=my-test-pvc-migrated
 
-# Used only when moving between different Supervisor namespaces.
+# Used only for a different-Supervisor-namespace migration.
 export DST_SUP_PVC=my-test-pvc-migrated-supervisor
 
-# Use a VolumeSnapshotClass present on the Supervisor.
+# Used only for the same-Supervisor-namespace snapshot path.
 export SUP_SNAPSHOT_CLASS=volumesnapshotclass-delete
-```
-
-Confirm that the snapshot class exists:
-
-```bash
-sup-src get volumesnapshotclass "$SUP_SNAPSHOT_CLASS"
 ```
 
 ## 2. Create a test volume and write identifiable data
@@ -145,8 +143,6 @@ vks-src -n "$SRC_VKS_NS" exec migration-test-writer -- \
 
 ## 3. Discover and record the storage chain
 
-The Supervisor PVC is in the Supervisor namespace associated with the source VKS cluster.
-
 ```bash
 export SRC_VKS_PV=$(
   vks-src -n "$SRC_VKS_NS" get pvc "$SRC_VKS_PVC" \
@@ -173,16 +169,27 @@ export FCD_UUID=$(
     -o jsonpath='{.spec.csi.volumeHandle}'
 )
 
-printf '%-18s %s\n' \
+export SUP_STORAGE_CLASS=$(
+  sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
+    -o jsonpath='{.spec.storageClassName}'
+)
+
+export SUP_ACCESS_MODE=$(
+  sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
+    -o jsonpath='{.spec.accessModes[0]}'
+)
+
+printf '%-22s %s\n' \
   'VKS PVC:' "$SRC_VKS_NS/$SRC_VKS_PVC" \
   'VKS PV:' "$SRC_VKS_PV" \
   'PVC size:' "$VKS_PVC_SIZE" \
   'Supervisor PVC:' "$SRC_SUP_NS/$SUP_PVC" \
   'Supervisor PV:' "$SUP_PV" \
+  'Supervisor policy:' "$SUP_STORAGE_CLASS" \
   'FCD UUID:' "$FCD_UUID"
 ```
 
-Save these values before continuing. They are required for validation and recovery.
+Save these values before continuing.
 
 Verify the chain explicitly:
 
@@ -206,7 +213,9 @@ vks-src -n "$SRC_VKS_NS" delete pod migration-test-writer \
   --wait=true
 ```
 
-For an application deployment or StatefulSet, scale it to zero instead and verify that the PVC is no longer mounted.
+For a Deployment or StatefulSet, scale it to zero instead.
+
+Check for remaining VKS `VolumeAttachment` objects:
 
 ```bash
 vks-src get volumeattachments \
@@ -216,10 +225,28 @@ vks-src get volumeattachments \
 
 Do not continue while the source volume remains attached to a running workload.
 
-## 5. Create and verify the Supervisor snapshot
+## 5. Select the preservation path
+
+```bash
+if [ "$SRC_SUP_NS" = "$DST_SUP_NS" ]; then
+  echo "Same Supervisor namespace: use the snapshot-preservation path."
+else
+  echo "Different Supervisor namespaces: use the Retain-and-rebind path."
+fi
+```
+
+---
+
+## Path A: Same Supervisor namespace
+
+Use this path only when both VKS clusters are associated with the **same Supervisor namespace**.
+
+### A1. Create and verify a Supervisor snapshot
 
 ```bash
 export SUP_SNAPSHOT="${SUP_PVC}-migration-snapshot"
+
+sup-src get volumesnapshotclass "$SUP_SNAPSHOT_CLASS"
 
 sup-src -n "$SRC_SUP_NS" apply -f - <<EOF_SNAPSHOT
 apiVersion: snapshot.storage.k8s.io/v1
@@ -240,26 +267,20 @@ sup-src -n "$SRC_SUP_NS" wait \
 sup-src -n "$SRC_SUP_NS" get volumesnapshot "$SUP_SNAPSHOT" -o wide
 ```
 
-Record the Supervisor PV reclaim policy and confirm that the snapshot is ready before deleting anything:
-
-```bash
-sup-src get pv "$SUP_PV" \
-  -o jsonpath='{.spec.persistentVolumeReclaimPolicy}{"\n"}'
-```
-
-## 6. Delete the source VKS PVC and PV
+### A2. Delete the source VKS PVC and PV
 
 ```bash
 vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" \
   --wait=true
 
-# The CSI controller may delete the VKS PV automatically. Delete it only if it remains.
 if vks-src get pv "$SRC_VKS_PV" >/dev/null 2>&1; then
   vks-src delete pv "$SRC_VKS_PV" --wait=true
 fi
 ```
 
-Verify that the Supervisor storage chain has been preserved:
+The Supervisor PVC/PV/FCD chain must remain because the snapshot still references the volume.
+
+Verify it:
 
 ```bash
 sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC"
@@ -270,33 +291,25 @@ CURRENT_FCD_UUID=$(
     -o jsonpath='{.spec.csi.volumeHandle}'
 )
 
-test "$CURRENT_FCD_UUID" = "$FCD_UUID" && \
-  echo "FCD identity preserved: $CURRENT_FCD_UUID"
-```
-
-Do not continue unless the Supervisor PV still exists and references the original FCD.
-
-## 7. Prepare the Supervisor volume for the destination VKS cluster
-
-The next step depends on whether the source and destination VKS clusters are associated with the same Supervisor namespace.
-
-### Case A: Same Supervisor namespace
-
-If the source and destination VKS clusters use the same Supervisor namespace, reuse the existing Supervisor PVC:
-
-```bash
-test "$SRC_SUP_NS" = "$DST_SUP_NS"
+test "$CURRENT_FCD_UUID" = "$FCD_UUID" || {
+  echo "ERROR: FCD identity changed" >&2
+  exit 1
+}
 
 export DEST_VOLUME_HANDLE="$SUP_PVC"
 ```
 
-Then continue to [Create the destination VKS PV and PVC](#8-create-the-destination-vks-pv-and-pvc).
+Continue to [Create the destination VKS PV and PVC](#6-create-the-destination-vks-pv-and-pvc).
 
-### Case B: Different Supervisor namespaces
+---
 
-If the destination VKS cluster is associated with a different Supervisor namespace, the existing Supervisor PVC cannot be used directly.
+## Path B: Different Supervisor namespaces
 
-The required transition is:
+Use this path when the destination VKS cluster is associated with a **different namespace on the same Supervisor**.
+
+A Supervisor PVC is namespace-scoped. The destination VKS cluster cannot use the source namespace's Supervisor PVC directly.
+
+The migration therefore rebinds the existing Supervisor PV/FCD to a new PVC:
 
 ```text
 Source Supervisor namespace                        Destination Supervisor namespace
@@ -312,97 +325,141 @@ Supervisor PVC (old)    <--- delete / create--->    Supervisor PVC (new)
                                    FCD
 ```
 
-#### 7.1 Record the source Supervisor PVC properties
+> [!IMPORTANT]
+> Do **not** create a Supervisor VolumeSnapshot for this path. A snapshot prevents deletion of the Supervisor PVC, which is required before the retained PV can be rebound into the destination namespace.
 
-Record the StorageClass and access mode before deleting the source Supervisor PVC:
+### B1. Obtain privileged Supervisor access
+
+The next operations modify a cluster-scoped Supervisor PV. The normal namespaced Supervisor context may not have permission to perform them.
+
+Obtain an administrative Kubernetes context for the Supervisor using the supported vCenter/Supervisor administrative access method for the environment.
+
+The examples below use:
 
 ```bash
-export SUP_STORAGE_CLASS=$(
-  sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
-    -o jsonpath='{.spec.storageClassName}'
-)
-
-export SUP_ACCESS_MODE=$(
-  sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
-    -o jsonpath='{.spec.accessModes[0]}'
-)
-
-printf 'Supervisor StorageClass: %s
-' "$SUP_STORAGE_CLASS"
-printf 'Supervisor access mode:  %s
-' "$SUP_ACCESS_MODE"
-
-# Override this if the destination Supervisor namespace uses a different policy.
-export DST_SUP_STORAGE_CLASS="$SUP_STORAGE_CLASS"
+alias sup-admin='kubectl --kubeconfig=${SUPERVISOR_ADMIN_KUBECONFIG}'
 ```
 
-Confirm the destination namespace is entitled to use `${DST_SUP_STORAGE_CLASS}`.
-
-#### 7.2 Delete the source Supervisor PVC
-
-The Supervisor VolumeSnapshot must already be `readyToUse`.
+Confirm that it can read and patch the Supervisor PV:
 
 ```bash
-sup-src -n "$SRC_SUP_NS" delete pvc "$SUP_PVC" --wait=true
+sup-admin get pv "$SUP_PV"
+sup-admin auth can-i patch pv "$SUP_PV"
 ```
 
-Verify that the Supervisor PV is still present and still references the original FCD:
+Do not continue unless the answer to the second command is `yes`.
+
+### B2. Set the Supervisor PV reclaim policy to `Retain`
+
+This must be done **before** deleting the source VKS storage objects.
 
 ```bash
-sup-src get pv "$SUP_PV"
+sup-admin patch pv "$SUP_PV" \
+  --type=merge \
+  -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
 
-CURRENT_FCD_UUID=$(
-  sup-src get pv "$SUP_PV" \
-    -o jsonpath='{.spec.csi.volumeHandle}'
-)
-
-test "$CURRENT_FCD_UUID" = "$FCD_UUID" || {
-  echo "ERROR: Supervisor PV no longer references expected FCD" >&2
+test "$(
+  sup-admin get pv "$SUP_PV" \
+    -o jsonpath='{.spec.persistentVolumeReclaimPolicy}'
+)" = "Retain" || {
+  echo "ERROR: Supervisor PV is not Retain" >&2
   exit 1
 }
 ```
 
-> [!CAUTION]
-> Do not continue if deleting the Supervisor PVC also removes the Supervisor PV or backing FCD in your environment. Validate the snapshot-preservation behaviour for the VCF/VKS version in use before using this procedure with production data.
-
-#### 7.3 Inspect the retained Supervisor PV `claimRef`
-
-The retained PV may still contain the identity of the deleted PVC:
+Also verify the FCD identity before proceeding:
 
 ```bash
-sup-src get pv "$SUP_PV" \
-  -o jsonpath='{.spec.claimRef.namespace}{"/"}{.spec.claimRef.name}{"
-"}'
+test "$(
+  sup-admin get pv "$SUP_PV" \
+    -o jsonpath='{.spec.csi.volumeHandle}'
+)" = "$FCD_UUID" || {
+  echo "ERROR: unexpected FCD UUID" >&2
+  exit 1
+}
 ```
 
-If the old `claimRef` remains, a PVC in the destination Supervisor namespace will not bind to this PV.
-
-#### 7.4 If needed, remove the old Supervisor PV `claimRef`
-
-Only after the old Supervisor PVC has been deleted:
+### B3. Delete the source VKS PVC and PV
 
 ```bash
-sup-src patch pv "$SUP_PV" \
+vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" \
+  --wait=true
+
+if vks-src get pv "$SRC_VKS_PV" >/dev/null 2>&1; then
+  vks-src delete pv "$SRC_VKS_PV" --wait=true
+fi
+```
+
+The Supervisor PVC may be removed automatically as part of the VKS volume deletion. Check its state:
+
+```bash
+sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" || true
+```
+
+If it still exists, delete it explicitly:
+
+```bash
+if sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" >/dev/null 2>&1; then
+  sup-src -n "$SRC_SUP_NS" delete pvc "$SUP_PVC" --wait=true
+fi
+```
+
+Because the Supervisor PV was changed to `Retain`, it must remain after the claim is removed:
+
+```bash
+sup-admin get pv "$SUP_PV"
+
+test "$(
+  sup-admin get pv "$SUP_PV" \
+    -o jsonpath='{.spec.csi.volumeHandle}'
+)" = "$FCD_UUID" || {
+  echo "ERROR: retained Supervisor PV does not reference expected FCD" >&2
+  exit 1
+}
+```
+
+### B4. Inspect and clear the old Supervisor PV `claimRef`
+
+After the source Supervisor PVC has gone, the retained PV can remain in `Released` state with the old claim identity:
+
+```bash
+sup-admin get pv "$SUP_PV" \
+  -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,CLAIM_NS:.spec.claimRef.namespace,CLAIM:.spec.claimRef.name,HANDLE:.spec.csi.volumeHandle
+```
+
+If the old `claimRef` remains, a PVC in the destination namespace cannot bind to the PV.
+
+Remove it:
+
+```bash
+sup-admin patch pv "$SUP_PV" \
   --type=json \
   -p='[{"op":"remove","path":"/spec/claimRef"}]'
 ```
 
-Verify the PV is no longer claimed:
+Verify that the PV is unclaimed and still points to the same FCD:
 
 ```bash
-sup-src get pv "$SUP_PV" \
-  -o jsonpath='{.spec.claimRef}{"
-"}'
+sup-admin get pv "$SUP_PV" \
+  -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,CLAIM_NS:.spec.claimRef.namespace,CLAIM:.spec.claimRef.name,HANDLE:.spec.csi.volumeHandle
+
+test "$(
+  sup-admin get pv "$SUP_PV" \
+    -o jsonpath='{.spec.csi.volumeHandle}'
+)" = "$FCD_UUID"
 ```
 
-The output should be empty or `null`.
+### B5. Create a replacement Supervisor PVC in the destination namespace
 
-> [!IMPORTANT]
-> This requires permission to modify cluster-scoped Supervisor PVs. Do not remove the `claimRef` while the old Supervisor PVC still exists.
+The destination Supervisor namespace must be entitled to the selected storage policy.
 
-#### 7.5 Create a replacement Supervisor PVC in the destination namespace
+By default, this example reuses the source PVC's StorageClass. Override it if the destination namespace uses a different compatible policy:
 
-Create the new PVC in the Supervisor namespace associated with the destination VKS cluster, and bind it explicitly to the retained Supervisor PV:
+```bash
+export DST_SUP_STORAGE_CLASS="$SUP_STORAGE_CLASS"
+```
+
+Create a new Supervisor PVC and bind it explicitly to the retained Supervisor PV:
 
 ```bash
 sup-dst -n "$DST_SUP_NS" apply -f - <<EOF_DEST_SUP_PVC
@@ -422,7 +479,7 @@ spec:
 EOF_DEST_SUP_PVC
 ```
 
-Wait for it to bind:
+Wait for binding:
 
 ```bash
 sup-dst -n "$DST_SUP_NS" wait \
@@ -431,29 +488,36 @@ sup-dst -n "$DST_SUP_NS" wait \
   --timeout=5m
 ```
 
-Validate the new binding:
+Validate both sides of the binding:
 
 ```bash
 sup-dst -n "$DST_SUP_NS" get pvc "$DST_SUP_PVC" \
   -o custom-columns=NAME:.metadata.name,PV:.spec.volumeName,PHASE:.status.phase
 
-sup-dst get pv "$SUP_PV" \
-  -o custom-columns=NAME:.metadata.name,CLAIM_NS:.spec.claimRef.namespace,CLAIM:.spec.claimRef.name,HANDLE:.spec.csi.volumeHandle
+sup-admin get pv "$SUP_PV" \
+  -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,CLAIM_NS:.spec.claimRef.namespace,CLAIM:.spec.claimRef.name,HANDLE:.spec.csi.volumeHandle
 ```
 
-The Supervisor PV must now reference `${DST_SUP_NS}/${DST_SUP_PVC}` and its CSI `volumeHandle` must still be `${FCD_UUID}`.
+Confirm:
 
-Set the destination VKS volume handle:
+- the destination Supervisor PVC is `Bound`;
+- the Supervisor PV `claimRef` points to `${DST_SUP_NS}/${DST_SUP_PVC}`;
+- the Supervisor PV CSI `volumeHandle` is still `${FCD_UUID}`.
+
+Then:
 
 ```bash
 export DEST_VOLUME_HANDLE="$DST_SUP_PVC"
 ```
 
-## 8. Create the destination VKS PV and PVC
+---
 
-Use a static PV with `storageClassName: ""` to prevent dynamic provisioning.
+## 6. Create the destination VKS PV and PVC
 
-The VKS PV `volumeHandle` must reference the Supervisor PVC in the Supervisor namespace associated with the **destination** VKS cluster.
+For either path, the VKS PV `volumeHandle` must be the Supervisor PVC visible to the destination VKS cluster:
+
+- Path A: the existing `${SUP_PVC}`;
+- Path B: the new `${DST_SUP_PVC}` in `${DST_SUP_NS}`.
 
 ```bash
 vks-dst apply -f - <<EOF_DEST_VOLUME
@@ -501,7 +565,7 @@ vks-dst -n "$DST_VKS_NS" wait \
   --timeout=5m
 ```
 
-## 9. Mount the migrated volume and verify the data
+## 7. Mount the migrated volume and verify the data
 
 ```bash
 vks-dst -n "$DST_VKS_NS" apply -f - <<EOF_READER
@@ -536,80 +600,21 @@ vks-dst -n "$DST_VKS_NS" exec migration-test-reader -- \
 
 The output should match the content written on the source cluster.
 
-## 10. Cleanup after validation
+## 8. Cleanup after validation
 
-Do not remove the Supervisor snapshot until the migrated workload has been validated and rollback is no longer required.
+Delete the test reader after validation:
 
 ```bash
 vks-dst -n "$DST_VKS_NS" delete pod migration-test-reader
+```
 
-# Optional: remove the snapshot only after migration acceptance.
+If Path A was used, retain the snapshot until the migrated workload has been validated and rollback is no longer required:
+
+```bash
 sup-src -n "$SRC_SUP_NS" delete volumesnapshot "$SUP_SNAPSHOT"
 ```
 
----
-
-# Alternative Same-vCenter Preservation Method: Retain the Supervisor PV
-
-Use this method only when you have sufficient Supervisor administrative access. It does not rely on a VolumeSnapshot.
-
-## 1. Patch the Supervisor PV before deleting the source VKS PVC
-
-Run against the Supervisor control plane with credentials that can modify cluster-scoped PVs:
-
-```bash
-kubectl patch pv "$SUP_PV" \
-  --type=merge \
-  -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
-
-kubectl get pv "$SUP_PV" \
-  -o jsonpath='{.spec.persistentVolumeReclaimPolicy}{"\n"}'
-```
-
-## 2. Quiesce the workload and delete the VKS objects
-
-Follow steps 4 and 6 from Example 1.
-
-## 3. Remove the old Supervisor PV claim reference
-
-Confirm that the old Supervisor PVC has been deleted before removing `claimRef`:
-
-```bash
-kubectl patch pv "$SUP_PV" \
-  --type=json \
-  -p='[{"op":"remove","path":"/spec/claimRef"}]'
-```
-
-## 4. Create a replacement Supervisor PVC
-
-Set the destination storage policy name before applying the PVC:
-
-```bash
-export DST_STORAGE_CLASS=vsan-esa-default-policy-raid5
-export DST_SUP_PVC="$SUP_PVC"
-
-sup-dst -n "$SUP_NS" apply -f - <<EOF_SUP_PVC
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: ${DST_SUP_PVC}
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: ${DST_STORAGE_CLASS}
-  volumeName: ${SUP_PV}
-  resources:
-    requests:
-      storage: ${VKS_PVC_SIZE}
-EOF_SUP_PVC
-
-sup-dst -n "$SUP_NS" wait \
-  --for=jsonpath='{.status.phase}'=Bound \
-  "pvc/${DST_SUP_PVC}" \
-  --timeout=5m
-```
-
-Then create the destination VKS PV/PVC as shown in step 7, using `${DST_SUP_PVC}` as the VKS PV `volumeHandle`.
+For Path B, there is no migration snapshot to remove.
 
 ---
 
@@ -649,7 +654,7 @@ export DST_VKS_PVC=migrated-cross-vcenter-pvc
 
 ## 2. Discover the source storage chain
 
-Run the discovery commands from Example 1, changing `SUP_NS` to `SRC_SUP_NS`:
+Discover the source storage chain as in Example 1:
 
 ```bash
 export SRC_VKS_PV=$(
