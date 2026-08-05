@@ -94,7 +94,7 @@ vks-src -n "$SRC_VKS_NS" apply -f - <<'EOF_PVC'
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: my-test-pvc
+  name: ${SRC_VKS_PVC}
 spec:
   accessModes:
     - ReadWriteOnce
