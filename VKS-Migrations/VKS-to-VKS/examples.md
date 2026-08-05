@@ -377,7 +377,7 @@ sup-src get pv "$SUP_PV" \
 
 If the old `claimRef` remains, a PVC in the destination Supervisor namespace will not bind to this PV.
 
-#### 7.4 Remove the old Supervisor PV `claimRef`
+#### 7.4 If needed, remove the old Supervisor PV `claimRef`
 
 Only after the old Supervisor PVC has been deleted:
 
