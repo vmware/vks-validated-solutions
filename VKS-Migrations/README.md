@@ -11,9 +11,9 @@ Three approaches are provided. The correct choice depends on the source platform
 
 | Source | Destination | Persistent-data method | Solution | Whitepaper |
 |---|---|---|---|---|
-| A Kubernetes cluster with a mountable filesystem PVC | VKS | Copy the filesystem into a newly provisioned VKS PVC using `pv-migrate` | [`Any-K8s-to-VKS`](Any-K8s-to-VKS/) | https://www.vmware.com/docs/vmw-migrating-non-vsphere-kubernetes-workloads-to-vmware-vsphere-kubernetes-service-on-vmware-cloud-foundation |
-| A Kubernetes cluster using the vSphere CSI driver | VKS | Retain the existing FCD and register it with the destination Supervisor | [`vSphere-CSI-K8s-to-VKS`](vSphere-CSI-K8s-to-VKS/) | https://www.vmware.com/docs/vmw-kubernetes-workload-migration-to-vks |
-| VKS | Another VKS cluster | Preserve or migrate the FCD and reconstruct the VKS/Supervisor storage chain | [`VKS-to-VKS`](VKS-to-VKS/) | https://www.vmware.com/docs/vmw-migrating-workloads-between-vmware-vsphere-kubernetes-service-clusters |
+| A Kubernetes cluster using the **vSphere CSI driver** | VKS | Retain the existing FCD and register it with the destination Supervisor | [`vSphere-CSI-K8s-to-VKS`](vSphere-CSI-K8s-to-VKS/) | https://www.vmware.com/docs/vmw-kubernetes-workload-migration-to-vks |
+| A Kubernetes cluster running outside of vSphere | VKS | Copy the filesystem into a newly provisioned VKS PVC using `pv-migrate` | [`Any-K8s-to-VKS`](Any-K8s-to-VKS/) | https://www.vmware.com/docs/vmw-migrating-non-vsphere-kubernetes-workloads-to-vmware-vsphere-kubernetes-service-on-vmware-cloud-foundation |
+| A vSphere Kubernetes Cluster | Another vSphere Kubernetes Cluster | Preserve or migrate the FCD and reconstruct the VKS/Supervisor storage chain | [`VKS-to-VKS`](VKS-to-VKS/) | https://www.vmware.com/docs/vmw-migrating-workloads-between-vmware-vsphere-kubernetes-service-clusters |
 
 ## Decision guide
 
