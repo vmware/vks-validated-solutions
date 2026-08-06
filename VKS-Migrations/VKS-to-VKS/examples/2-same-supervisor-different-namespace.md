@@ -403,7 +403,7 @@ This is the handover operation:
 govc volume.rm -keep "$FCD_UUID"
 ```
 
-`-keep` is essential. It instructs CNS to remove the container-volume registration **without deleting the backing disk**.
+**`-keep` is essential. It instructs CNS to remove the container-volume registration without deleting the backing disk**.
 
 Verify that the CNS volume registration is gone:
 
