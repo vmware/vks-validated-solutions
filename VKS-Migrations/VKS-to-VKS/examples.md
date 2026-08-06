@@ -754,6 +754,8 @@ vks-src get volumeattachments \
 
 Do not continue while the volume remains attached to a source workload.
 
+
+
 ## 4. Create a manifest-only Velero backup
 
 ```bash
@@ -773,48 +775,30 @@ velero backup describe "$BACKUP_NAME" \
 
 The Velero backup handles application metadata only. The FCD is preserved independently by the storage workflow.
 
-## 5. Retain the source Supervisor PV
 
-For a cross-vCenter migration, do **not** use a Supervisor `VolumeSnapshot` as the retention mechanism. The source Supervisor PVC must be removed before moving the FCD, and vSphere CSI blocks PVC deletion while snapshots exist.
-
-Obtain a privileged source Supervisor context capable of patching cluster-scoped PVs:
+## 5. Create and verify the source Supervisor snapshot
 
 ```bash
-export SRC_SUP_ADMIN_KUBECONFIG="$HOME/source-supervisor-admin-kubeconfig"
-alias sup-admin='kubectl --kubeconfig=${SRC_SUP_ADMIN_KUBECONFIG}'
+export SUP_SNAPSHOT="${SUP_PVC}-migration-snapshot"
 
-sup-admin auth can-i patch pv "$SUP_PV"
+sup-src -n "$SRC_SUP_NS" apply -f - <<EOF_SNAPSHOT
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: ${SUP_SNAPSHOT}
+spec:
+  volumeSnapshotClassName: ${SUP_SNAPSHOT_CLASS}
+  source:
+    persistentVolumeClaimName: ${SUP_PVC}
+EOF_SNAPSHOT
+
+sup-src -n "$SRC_SUP_NS" wait \
+  --for=jsonpath='{.status.readyToUse}'=true \
+  "volumesnapshot/${SUP_SNAPSHOT}" \
+  --timeout=10m
 ```
 
-Set the Supervisor PV to `Retain`:
-
-```bash
-sup-admin patch pv "$SUP_PV" \
-  --type=merge \
-  -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
-
-test "$(
-  sup-admin get pv "$SUP_PV" \
-    -o jsonpath='{.spec.persistentVolumeReclaimPolicy}'
-)" = "Retain" || {
-  echo "ERROR: Supervisor PV is not Retain" >&2
-  exit 1
-}
-```
-
-Verify the FCD identity:
-
-```bash
-test "$(
-  sup-admin get pv "$SUP_PV" \
-    -o jsonpath='{.spec.csi.volumeHandle}'
-)" = "$SRC_FCD_UUID" || {
-  echo "ERROR: unexpected source FCD UUID" >&2
-  exit 1
-}
-```
-
-Delete the source VKS PVC and PV:
+## 6. Delete the source VKS PVC and PV
 
 ```bash
 vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" --wait=true
@@ -822,30 +806,14 @@ vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" --wait=true
 if vks-src get pv "$SRC_VKS_PV" >/dev/null 2>&1; then
   vks-src delete pv "$SRC_VKS_PV" --wait=true
 fi
+
+sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC"
+sup-src get pv "$SUP_PV"
 ```
 
-If the source Supervisor PVC remains, delete it explicitly:
+Do not proceed unless the Supervisor objects still exist and the Supervisor PV still references `${SRC_FCD_UUID}`.
 
-```bash
-if sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" >/dev/null 2>&1; then
-  sup-src -n "$SRC_SUP_NS" delete pvc "$SUP_PVC" --wait=true
-fi
-```
-
-The retained Supervisor PV and FCD must remain:
-
-```bash
-sup-admin get pv "$SUP_PV"
-
-test "$(
-  sup-admin get pv "$SUP_PV" \
-    -o jsonpath='{.spec.csi.volumeHandle}'
-)" = "$SRC_FCD_UUID"
-```
-
-The retained Supervisor PV may remain `Released` with the old `claimRef`. That does not need to be cleared for the cross-vCenter path because the source PV is not rebound locally.
-
-## 6. Create a powered-off helper VM and attach the FCD
+## 7. Create a powered-off helper VM and attach the FCD
 
 Configure `govc` for the source vCenter before running these commands. The helper VM must be created in inventory accessible to the source FCD.
 
@@ -876,7 +844,7 @@ govc device.info -vm "$HELPER_VM"
 
 The helper VM must remain powered off. Do not allow a guest OS to mount or modify the disk.
 
-## 7. Perform the cross-vCenter migration
+## 8. Perform the cross-vCenter migration
 
 Using the source vCenter UI, perform a cross-vCenter migration of the helper VM and its attached disk.
 
@@ -907,7 +875,7 @@ printf 'Destination FCD UUID: %s\n' "$DEST_FCD_UUID"
 
 If the UUID differs, use the UUID discovered on the destination vCenter in all subsequent commands.
 
-## 8. Verify destination storage-policy compatibility
+## 9. Verify destination storage-policy compatibility
 
 Before registering the disk, verify in vCenter that:
 
@@ -918,7 +886,7 @@ Before registering the disk, verify in vCenter that:
 
 Registration may fail or produce an unusable PVC if these mappings are incorrect.
 
-## 9. Register the FCD with the destination Supervisor
+## 10. Register the FCD with the destination Supervisor
 
 ```bash
 sup-dst -n "$DST_SUP_NS" apply -f - <<EOF_REGISTER
@@ -950,7 +918,7 @@ sup-dst -n "$DST_SUP_NS" get \
   -o jsonpath='{.status.error}{"\n"}'
 ```
 
-## 10. Discover the destination Supervisor PV and volume size
+## 11. Discover the destination Supervisor PV and volume size
 
 ```bash
 export DST_SUP_PV=$(
@@ -979,7 +947,7 @@ test "$REGISTERED_FCD_UUID" = "$DEST_FCD_UUID"
 
 The final command must exit successfully.
 
-## 11. Adopt the destination Supervisor PVC in VKS
+## 12. Adopt the destination Supervisor PVC in VKS
 
 ```bash
 vks-dst apply -f - <<EOF_DEST_VOLUME
@@ -1027,7 +995,7 @@ vks-dst -n "$DST_VKS_NS" wait \
   --timeout=5m
 ```
 
-## 12. Restore application manifests
+## 13. Restore application manifests
 
 Restore application metadata only after the destination VKS PV/PVC has been reconstructed:
 
@@ -1047,7 +1015,7 @@ velero restore describe "$RESTORE_NAME" \
 
 For Helm- or GitOps-managed applications, reconstructing the application from its original source of truth may be preferable. Verify that restored workloads reference `${DST_VKS_PVC}` where required.
 
-## 13. Mount the volume and validate the migrated data
+## 14. Mount the volume and validate the migrated data
 
 ```bash
 vks-dst -n "$DST_VKS_NS" apply -f - <<EOF_READER
@@ -1082,7 +1050,7 @@ vks-dst -n "$DST_VKS_NS" exec cross-vcenter-migration-reader -- \
 
 Validate application-level consistency before accepting the migration.
 
-## 14. Detach and remove the helper VM
+## 15. Detach and remove the helper VM
 
 After the FCD has been registered and the destination workload validated, remove the disk from the helper VM without deleting the backing disk, then delete the helper VM.
 
@@ -1099,7 +1067,7 @@ govc vm.destroy "$HELPER_VM"
 
 Confirm that the FCD and destination PVC remain present before deleting the VM.
 
-## 15. Source cleanup
+## 16. Source cleanup
 
 Complete source cleanup only after destination validation and migration acceptance.
 
@@ -1142,7 +1110,6 @@ Before declaring the migration complete, confirm all of the following:
 
 - [ ] The source workload was quiesced before storage metadata was changed.
 - [ ] The original VKS PV, Supervisor PVC, Supervisor PV and FCD UUID were recorded.
-- [ ] The correct preservation method was used: snapshot for same-Supervisor-namespace migration, or Supervisor PV `Retain` for cross-namespace/cross-vCenter migration.
 - [ ] The destination Supervisor PV references the expected FCD UUID.
 - [ ] The destination VKS PVC is `Bound`.
 - [ ] The volume mounts successfully in the destination VKS cluster.
