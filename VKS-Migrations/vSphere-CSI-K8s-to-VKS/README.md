@@ -21,13 +21,11 @@ The application data is not copied. The same FCD is detached from the source clu
 ├── README.md
 ├── OCP-VKS-migration-example.md
 ├── zero-copy-migration-poc-script.sh
-├── velero-destination-configmap-modifier-examples.md
 └── quick-s3-endpoint-for-testing.md
 ```
 
 - [`OCP-VKS-migration-example.md`](OCP-VKS-migration-example.md) contains the detailed OpenShift-to-VKS procedure.
 - [`zero-copy-migration-poc-script.sh`](zero-copy-migration-poc-script.sh) provides a compact proof-of-concept implementation.
-- [`velero-destination-configmap-modifier-examples.md`](velero-destination-configmap-modifier-examples.md) shows examples of destination-side resource translation.
 - [`quick-s3-endpoint-for-testing.md`](quick-s3-endpoint-for-testing.md) creates a temporary S3-compatible endpoint for lab testing.
 
 ## When to use this approach
