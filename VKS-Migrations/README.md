@@ -119,7 +119,7 @@ Kubernetes resources and persistent storage have different portability constrain
 
 ### Use resource modifiers where needed
 
-The [Velero Configmap Modifier Examples](velero-destination-configmap-modifier-examples.md) shows how various destination-incompatible resources can be mapped across using Velero
+The [`Velero Configmap Modifier Examples`](velero-destination-configmap-modifier-examples.md) shows how various destination-incompatible resources can be mapped across using Velero
 
 ### Quiesce for the final cutover
 
