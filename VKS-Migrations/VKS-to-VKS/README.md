@@ -53,14 +53,11 @@ VKS PVC/PV    <--- delete | create --->    new VKS PVC/PV
      │                                      │
      └──────────────┐   ┌───────────────────┘
                     ▼   ▼
-                Supervisor PVC
+                Supervisor PVC  <--- VolumeSnapshot
                       │
                  Supervisor PV
                       │
-                     FCD
-                      ▲
-                      │
-                VolumeSnapshot
+                     FCD                                   
 ```
 
 High-level flow:
