@@ -133,7 +133,7 @@ VKS PV
 
 # Validation
 
-Worked examples are provided in [examples.md](examples.md). Runnable shell examples are also included as [same-vcenter-example.sh](same-vcenter-example.sh) and [cross-vcenter-example.sh](cross-vcenter-example.sh).
+Worked examples are provided in [examples](examples/)
 
 These examples demonstrate:
 
