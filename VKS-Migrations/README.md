@@ -117,6 +117,10 @@ Record the workloads, namespaces, PVCs, volume modes, access modes, StorageClass
 
 Kubernetes resources and persistent storage have different portability constraints. Do not blindly restore source PV and PVC objects into VKS. Use the selected storage workflow to prepare the destination volume, then restore or reconstruct the application around it.
 
+### Use resource modifiers where needed
+
+The [Velero Configmap Modifier Examples](velero-destination-configmap-modifier-examples.md) shows how various destination-incompatible resources can be mapped across using Velero
+
 ### Quiesce for the final cutover
 
 A copied or preserved disk is not necessarily application-consistent. Use the application's supported shutdown, checkpoint, or backup procedure before the final storage operation.
