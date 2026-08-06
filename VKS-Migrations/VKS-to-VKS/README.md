@@ -40,7 +40,7 @@ First Class Disk (FCD)
 
 The migration method depends on which part of this chain must change.
 
-<br>
+
 ## Scenario 1: Same Supervisor and Same Supervisor Namespace
 
 When both VKS clusters use the **same Supervisor namespace**, the existing Supervisor PVC can remain in place.
@@ -74,7 +74,6 @@ High-level flow:
 
 See [Example 1: Same Supervisor and namespace](examples/1-same-supervisor-and-namespace.md).
 
-<br>
 ## Scenario 2: Same Supervisor, Different Supervisor Namespaces
 
 A Supervisor PVC is namespace-scoped, whereas its PV is cluster-scoped. A destination PVC in another Supervisor namespace cannot take over the existing PV while the PV still references the source claim. `CnsRegisterVolume` also refuses to create another Supervisor PV when the same FCD UUID is already represented by an existing PV.
@@ -136,7 +135,6 @@ This path requires normal namespaced Supervisor access plus sufficient vCenter p
 
 See [Example 2: Same Supervisor, different namespace](examples/2-same-supervisor-different-namespace.md).
 
-<br>
 ## Scenario 3: Across Supervisors and vCenters
 
 For a cross-vCenter migration, a Supervisor `VolumeSnapshot` is used to preserve the source Supervisor PVC/PV/FCD relationship while the source VKS objects are removed. The FCD is then attached to a helper VM and moved to the destination vCenter using cross-vCenter Storage vMotion.
@@ -186,7 +184,6 @@ Cross-vCenter Storage vMotion may transfer storage blocks. The workflow avoids a
 
 See [Example 3: Across Supervisors and vCenters](examples/3-across-supervisors-and-vcenters.md).
 
-<br>
 ## Worked Examples
 
 The detailed procedures are split by migration scenario:
@@ -197,7 +194,6 @@ The detailed procedures are split by migration scenario:
 
 See the [examples index](examples/README.md) for the scenario comparison and storage-identity model.
 
-<br>
 ## Assumptions and Limitations
 
 | Item | Notes |
@@ -214,7 +210,6 @@ See the [examples index](examples/README.md) for the scenario comparison and sto
 | Destination | Destination Supervisor must support `CnsRegisterVolume` and have the required storage policy assigned to the destination namespace |
 | Rollback | Define the rollback point explicitly for each scenario and do not remove protection until destination validation is complete |
 
-<br>
 ## Summary
 
 VKS persistent volumes can be migrated by preserving the underlying FCD and rebuilding the Kubernetes/CNS metadata around it rather than copying the filesystem data.
