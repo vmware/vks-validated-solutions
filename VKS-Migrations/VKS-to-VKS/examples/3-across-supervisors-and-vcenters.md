@@ -10,8 +10,6 @@ This example preserves the source disk, attaches it to a helper VM, migrates the
 > [!IMPORTANT]
 > Cross-vCenter vMotion may transfer the disk's storage blocks. The procedure avoids a Kubernetes-level or filesystem-level data copy, but it does not imply that no storage data is transferred by vMotion.
 
-> [!NOTE]
-> The `govc volume.rm -keep` handover in [Example 2](2-same-supervisor-different-namespace.md) has been validated for moving an FCD between Supervisor namespaces on the **same vCenter**. It has not yet been validated as the source-preservation mechanism for the cross-vCenter workflow below, so this example continues to use the tested Supervisor PV `Retain` procedure.
 
 ## 1. Configure source and destination contexts
 
