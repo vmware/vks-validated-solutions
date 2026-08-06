@@ -92,7 +92,7 @@ export RESTORE_NAME="vks-migration-${DST_VKS_NS}"
 Skip this step when migrating an existing workload.
 
 ```bash
-vks-src -n "$SRC_VKS_NS" apply -f - <<'EOF_PVC'
+vks-src -n "$SRC_VKS_NS" apply -f - <<EOF_PVC
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
