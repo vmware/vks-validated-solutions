@@ -20,8 +20,8 @@ Three approaches are provided. The correct choice depends on the source platform
 ```mermaid
 flowchart TD
     START["Where is the workload running?"]
-    START -->|"VKS"| VKS["Use VKS-to-VKS"]
-    START -->|"Another Kubernetes platform"| CSI{"Does the volume use vSphere CSI<br/>and can the existing FCD be retained?"}
+    START =="`**Existing VKS Cluster**`"==> VKS["Use VKS-to-VKS"]
+    START ==>|"`**Another Kubernetes platform**`"| CSI{{"Does the volume use vSphere CSI<br/>and can the existing FCD be retained?"}}
     CSI -->|"Yes"| CAPTURE["Use vSphere-CSI-K8s-to-VKS"]
     CSI -->|"No, or storage independence is required"| COPY["Use Any-K8s-to-VKS"]
     VKS --> VKS_DETAIL["Reconstruct the VKS → Supervisor → FCD chain"]
