@@ -17,7 +17,7 @@ Three migration scenarios are covered:
 > [!CAUTION]
 > These procedures are proofs of concept. Rehearse them with disposable workloads, quiesce the application, and retain an independent application-consistent backup before modifying storage objects.
 
-<br>
+
 ## Architecture
 
 Keep the storage identities distinct throughout the migration:
