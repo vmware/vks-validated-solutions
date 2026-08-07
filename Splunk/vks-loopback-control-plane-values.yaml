@@ -1,11 +1,4 @@
-# Optional VKS compatibility overlay for control-plane components whose metrics
-# listeners are bound to the node loopback interface.
-#
-# Do not use this file by default. The chart already enables these receivers and
-# normally discovers their pod IPs. Use this overlay only when collector logs
-# show connection failures for ports 10249, 10257, or 10259 and the corresponding
-# VKS components are confirmed to listen on 127.0.0.1.
-#
+
 # This overrides the chart's scrape_configs lists, so it deliberately repeats
 # the chart 0.157.0 metric filters. Review it whenever CHART_VERSION is changed.
 # The surrounding receiver_creator rules remain chart-managed; consequently the
