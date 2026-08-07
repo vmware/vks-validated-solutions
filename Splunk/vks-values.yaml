@@ -8,3 +8,8 @@ agent:
   securityContext:
     runAsUser: 20000
     runAsGroup: 20000
+
+  config:
+    receivers:
+      kubelet_stats:
+        insecure_skip_verify: true
