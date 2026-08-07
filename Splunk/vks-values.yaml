@@ -1,9 +1,9 @@
-# Helm override to run the collector agent as a non-root user
+# Deliberate VKS overrides for the Splunk collector agent.
 #
 # The Splunk chart adds an init container which adjusts access to the node log
-# directories when both values below are non-zero. 
-# 
-# This does not remove the need for the namespace's privileged PSA level
+# directories when both values below are non-zero. This is supported with the
+# containerd runtime used by VKS. It is defence in depth; it does not remove the
+# need for the namespace's privileged Pod Security Admission level.
 agent:
   securityContext:
     runAsUser: 20000
@@ -12,4 +12,8 @@ agent:
   config:
     receivers:
       kubelet_stats:
+        # The chart connects to K8S_NODE_IP:10250. VKS kubelet serving
+        # certificates can omit IP subject alternative names, so hostname
+        # verification fails even when the issuing CA is trusted.
+        # ServiceAccount authentication and TLS encryption remain enabled.
         insecure_skip_verify: true
