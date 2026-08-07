@@ -1,0 +1,20 @@
+# Example istio / gateway-api Gateway
+#
+# Instantiated in the 'istio-ingress' namespace
+# 
+
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: astro-gateway
+  namespace: istio-ingress
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
