@@ -180,6 +180,8 @@ A crash-consistent snapshot may not be application-consistent. For databases, us
 
 The storage data is not backed up by Velero. PVCs are restored separately after the FCD has been adopted.
 
+Note: update the describe command with the S3 cert if available
+
 ```bash
 velero backup create "${BACKUP_NAME}" \
   --kubeconfig="${OCP_KUBECONFIG}" \
@@ -191,7 +193,8 @@ velero backup create "${BACKUP_NAME}" \
 
 velero backup describe "${BACKUP_NAME}" \
   --kubeconfig="${OCP_KUBECONFIG}" \
-  --details
+  --details \
+  --insecure-skip-tls-verify
 ```
 
 Confirm that the backup phase is `Completed` and review warnings before proceeding.
@@ -199,6 +202,8 @@ Confirm that the backup phase is `Completed` and review warnings before proceedi
 ## 6. Restore manifests into VKS
 
 Use destination resource modifiers where source-specific images, ingress classes, security settings or other fields must change. See [`velero-destination-configmap-modifier-examples.md`](velero-destination-configmap-modifier-examples.md).
+
+Note: update the describe command with the S3 cert if available
 
 ```bash
 velero restore create "${RESTORE_NAME}" \
@@ -210,14 +215,25 @@ velero restore create "${RESTORE_NAME}" \
 
 velero restore describe "${RESTORE_NAME}" \
   --kubeconfig="${VKS_KUBECONFIG}" \
-  --details
+  --details \
+  --insecure-skip-tls-verify
 
 vks -n "${TARGET_NS}" get deploy,statefulset,daemonset,pod,svc,ingress,pvc
 ```
 
 The restored workload may be pending or unhealthy because its PVC has intentionally not yet been created. Ensure that restored controllers do not repeatedly start writers before storage cutover. Scale them down where necessary.
 
-## 7. Quiesce the source application
+## 7. Add the appropriate storage policy to the Supervisor Namespace
+
+Here we use `govc` to obtain the vSphere storage policy of the FCD and then add that storage policy to the Supervisor Namespace.
+You can also do this via vCenter
+
+```
+export STORAGE_POLICY=$(govc volume.ls -json $FCD_UUID | jq -r '.volume[].storagePolicyId')
+govc namespace.update -storage=$STORAGE_POLICY splunk
+```
+
+## 8. Quiesce the source application
 
 Identify every resource that mounts the PVC:
 
@@ -256,7 +272,7 @@ fi
 
 For application-consistent migration, flush and stop the application before the final cutover.
 
-## 8. Retain and release the source FCD
+## 9. Retain and release the source FCD
 
 Patch the source PV **before** deleting the PVC:
 
@@ -311,7 +327,9 @@ Confirm that the source PV is now `Released` or otherwise no longer bound to the
 ocp get pv "${PV_NAME}" -o wide
 ```
 
-## 9. Register the FCD with the destination Supervisor
+
+
+## 10. Register the FCD with the destination Supervisor
 
 Confirm that the CRD exists:
 
@@ -333,6 +351,8 @@ spec:
   pvcName: ${SUPERVISOR_PVC_NAME}
 EOF_REGISTER
 ```
+
+** Add the storage class used by OCP to the VKS cluster in vCenter **
 
 Wait for successful registration:
 
@@ -390,7 +410,7 @@ export DESTINATION_SIZE="$(
 )"
 ```
 
-## 10. Create the static VKS PV and PVC
+## 11. Create the static VKS PV and PVC
 
 The VKS PV `volumeHandle` is the **Supervisor PVC name**.
 
@@ -448,7 +468,7 @@ vks get pv "${VKS_PV_NAME}"
 vks -n "${TARGET_NS}" get pvc "${PVC_NAME}"
 ```
 
-## 11. Validate the data
+## 12. Validate the data
 
 For a filesystem volume, mount the PVC in a temporary pod. Adjust the image and command for the platform's registry and security policy.
 
@@ -492,7 +512,7 @@ vks -n "${TARGET_NS}" delete pod "migration-validation-${RUN_ID}" \
   --ignore-not-found
 ```
 
-## 12. Start and validate the destination workload
+## 13. Start and validate the destination workload
 
 Restore the intended replica counts or allow the relevant operator/Helm release to reconcile:
 
@@ -507,7 +527,7 @@ vks -n "${TARGET_NS}" get events --sort-by=.lastTimestamp
 
 Validate application health, data integrity, networking and external access.
 
-## 13. Source cleanup
+## 14. Source cleanup
 
 Do not clean up source rollback assets until the migration has been accepted.
 
