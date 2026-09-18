@@ -188,9 +188,6 @@ velero backup create "${BACKUP_NAME}" \
   --snapshot-volumes=false \
   --exclude-resources persistentvolumes
 
-velero backup wait "${BACKUP_NAME}" \
-  --kubeconfig="${OCP_KUBECONFIG}" \
-  --timeout=30m
 
 velero backup describe "${BACKUP_NAME}" \
   --kubeconfig="${OCP_KUBECONFIG}" \
@@ -210,9 +207,6 @@ velero restore create "${RESTORE_NAME}" \
   --namespace-mappings "${SOURCE_NS}:${TARGET_NS}" \
   --exclude-resources persistentvolumeclaims,persistentvolumes
 
-velero restore wait "${RESTORE_NAME}" \
-  --kubeconfig="${VKS_KUBECONFIG}" \
-  --timeout=30m
 
 velero restore describe "${RESTORE_NAME}" \
   --kubeconfig="${VKS_KUBECONFIG}" \
