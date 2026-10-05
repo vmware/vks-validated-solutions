@@ -1,0 +1,54 @@
+# Child B gateway: a VM Service VM, its cloud-init Secret, and a LoadBalancer on port 22 so
+# that the workstation can reach it over SSH (the namespace VPC is not routed to it).
+# Apply with -n <your vSphere Namespace> (guide 3C, step 3).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: traefik-child-b-cloud-init
+stringData:
+  user-data: |
+    #cloud-config
+    # Child B gateway VM: Docker, Docker Compose and the tools the guide uses. guestinfo.userdata is readable by
+    # anyone who can read the VM, so it carries no secret: only your SSH public key.
+    users:
+      - default
+      - name: ubuntu
+        sudo: ALL=(ALL) NOPASSWD:ALL
+        shell: /bin/bash
+        ssh_authorized_keys:
+          - REPLACE_ME_SSH_PUBLIC_KEY
+    package_update: true
+    packages: [docker.io, docker-compose-v2, jq, curl]
+    runcmd:
+      - systemctl enable --now docker
+---
+apiVersion: vmoperator.vmware.com/v1alpha3
+kind: VirtualMachine
+metadata:
+  name: traefik-child-b
+  labels:
+    app.kubernetes.io/name: traefik-child-b
+spec:
+  className: best-effort-medium
+  imageName: vmi-9f8e7d6c5b4a39281
+  storageClass: vsan-esa-default-policy-raid5
+  powerState: PoweredOn
+  bootstrap:
+    cloudInit:
+      rawCloudConfig:
+        name: traefik-child-b-cloud-init
+        key: user-data
+---
+apiVersion: vmoperator.vmware.com/v1alpha3
+kind: VirtualMachineService
+metadata:
+  name: traefik-child-b-ssh
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: traefik-child-b
+  ports:
+    - name: ssh
+      protocol: TCP
+      port: 22
+      targetPort: 22

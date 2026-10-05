@@ -1,0 +1,18 @@
+# The IngressRoute ai-local: ai.example.com/v1/chat/completions
+# through chatcompletion to the llama.cpp Service llm.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ai-local
+  namespace: apps
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`ai.example.com`) && Path(`/v1/chat/completions`)
+      middlewares:
+        - name: chatcompletion   # the middleware above
+      services:
+        - name: llm              # the ClusterIP Service of llama.cpp
+          port: 11434
+  tls: {}
