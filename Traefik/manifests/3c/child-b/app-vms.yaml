@@ -1,0 +1,87 @@
+# Two application VMs in the VM Service estate, each with the routing labels as annotations
+# and a cloud-init that runs whoami on port 80. Apply with -n <your vSphere Namespace> (guide 3C, step 3).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: traefik-vmsvc-app-1-cloud-init
+stringData:
+  user-data: |
+    #cloud-config
+    # Application VM (VM Service estate): whoami on port 80, reporting the VM name as "Hostname:".
+    users:
+      - default
+      - name: ubuntu
+        sudo: ALL=(ALL) NOPASSWD:ALL
+        shell: /bin/bash
+        ssh_authorized_keys:
+          - REPLACE_ME_SSH_PUBLIC_KEY
+    package_update: true
+    packages: [docker.io]
+    runcmd:
+      - systemctl enable --now docker
+      - docker run -d --restart=always --name whoami --hostname "$(hostname)" -p 80:80 traefik/whoami:v1.11
+---
+apiVersion: vmoperator.vmware.com/v1alpha3
+kind: VirtualMachine
+metadata:
+  name: traefik-vmsvc-app-1
+  labels:
+    app.kubernetes.io/name: traefik-vmsvc-app-1
+  annotations:
+    # the routing labels the vmoperator provider reads (one annotation per label)
+    traefik.enable: "true"
+    traefik.tags: vm
+    traefik.http.services.vmapp.loadbalancer.server.port: "80"
+spec:
+  className: best-effort-medium
+  imageName: vmi-9f8e7d6c5b4a39281
+  storageClass: vsan-esa-default-policy-raid5
+  powerState: PoweredOn
+  bootstrap:
+    cloudInit:
+      rawCloudConfig:
+        name: traefik-vmsvc-app-1-cloud-init
+        key: user-data
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: traefik-vmsvc-app-2-cloud-init
+stringData:
+  user-data: |
+    #cloud-config
+    # Application VM (VM Service estate): whoami on port 80, reporting the VM name as "Hostname:".
+    users:
+      - default
+      - name: ubuntu
+        sudo: ALL=(ALL) NOPASSWD:ALL
+        shell: /bin/bash
+        ssh_authorized_keys:
+          - REPLACE_ME_SSH_PUBLIC_KEY
+    package_update: true
+    packages: [docker.io]
+    runcmd:
+      - systemctl enable --now docker
+      - docker run -d --restart=always --name whoami --hostname "$(hostname)" -p 80:80 traefik/whoami:v1.11
+---
+apiVersion: vmoperator.vmware.com/v1alpha3
+kind: VirtualMachine
+metadata:
+  name: traefik-vmsvc-app-2
+  labels:
+    app.kubernetes.io/name: traefik-vmsvc-app-2
+  annotations:
+    # the routing labels the vmoperator provider reads (one annotation per label)
+    traefik.enable: "true"
+    traefik.tags: vm
+    traefik.http.services.vmapp.loadbalancer.server.port: "80"
+spec:
+  className: best-effort-medium
+  imageName: vmi-9f8e7d6c5b4a39281
+  storageClass: vsan-esa-default-policy-raid5
+  powerState: PoweredOn
+  bootstrap:
+    cloudInit:
+      rawCloudConfig:
+        name: traefik-vmsvc-app-2-cloud-init
+        key: user-data
