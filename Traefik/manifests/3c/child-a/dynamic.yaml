@@ -1,0 +1,24 @@
+# /etc/traefik-hub/dynamic.yaml (child A): the Uplink vm-app, its router,
+# the TLS options strict-mtls and the certificate of child A.
+http:
+  uplinks:
+    vm-app:                          # the parent sees vm-app@multicluster
+      entryPoints: [multicluster]
+      weight: 1                      # weight of this child on the parent
+  routers:
+    vm-app:
+      rule: PathPrefix(`/`)
+      service: vmapp@vsphere         # the merged service from the VMs' extraConfig
+      uplinks: [vm-app]              # no entryPoints, no tls on this router
+tls:
+  options:
+    strict-mtls:
+      clientAuth:
+        caFiles: [/etc/traefik-hub/certs/ca.crt]
+        clientAuthType: RequireAndVerifyClientCert
+      minVersion: VersionTLS12
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/traefik-hub/certs/child-a.crt
+        keyFile: /etc/traefik-hub/certs/child-a.key

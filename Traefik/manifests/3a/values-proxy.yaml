@@ -1,0 +1,12 @@
+# Traefik Proxy on VKS (chart 41.6.1, Traefik Proxy v3.7.13).
+# Gateway API provider with the Experimental channel (TCPRoute).
+providers:
+  kubernetesGateway:
+    enabled: true
+    experimentalChannel: true
+# Default certificate for routes that terminate TLS without a certificate of their own
+# (IngressRoutes with tls: {} in steps 3B and 3C). Issued by cert-manager (certificate.yaml).
+tlsStore:
+  default:
+    defaultCertificate:
+      secretName: traefik-tls

@@ -1,0 +1,15 @@
+# The route migration.example.com to the weighted service migration.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: vm-app
+  namespace: traefik
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`migration.example.com`)
+      services:
+        - name: migration
+          kind: TraefikService
+  tls: {}
