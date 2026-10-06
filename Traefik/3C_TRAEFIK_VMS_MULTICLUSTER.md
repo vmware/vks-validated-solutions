@@ -1,13 +1,14 @@
 # Traefik Across VMs and Containers (Multicluster, Early Access)
 ## Versions
 * Parent gateway: the Traefik Hub v3.21.0 release of [Step 3B](3B_TRAEFIK_HUB.md) (chart 41.6.1)
-* Child gateways: Traefik Hub v3.21 **validation build** with the `vsphere` and `vmoperator`
-  providers, image `ghcr.io/traefik/traefik-hub:vmware-vks.ea0`, run by Docker Compose v2 on the
+* Child gateways: an **Early Access build** of Traefik Hub v3.21 with the `vsphere` and `vmoperator`
+  providers, supplied by Traefik Labs (see the note below), run by Docker Compose v2 on the
   child VMs (2.24.6 or later; Ubuntu 24.04 ships 2.24.6, and 2.40.3 from noble-updates)
 * vCenter 9.0.2, vSphere Kubernetes Service 3.7.0, VM Service API `vmoperator.vmware.com/v1alpha3`
 
-> **Early Access.** The multicluster provider is Early Access in Traefik Hub v3.21. The `vsphere`
-> and `vmoperator` providers are delivered in a validation build; do not use it in production.
+> **Early Access.** The multicluster provider is Early Access in Traefik Hub v3.21. The child gateways
+> run an Early Access build of Traefik Hub v3.21 with the `vsphere` and `vmoperator` providers; do not
+> use it in production. To evaluate Step 3C, [contact Traefik Labs](https://info.traefik.io/en/request-demo), which provides the build and supports the installation.
 
 ## Architecture
 A parent gateway (the Traefik Hub release in the VKS cluster) fronts two child gateways, one per
@@ -48,8 +49,9 @@ commands of this guide copy the project folder to the VM with `scp` and start it
   content library associated with the vSphere Namespace provides it; `VMSVC_IMAGE` in step 1 is its
   `vmi-…` name).
 * Network: the VKS worker nodes reach both children on TCP 9443; child A reaches vCenter on 443;
-  child B reaches the Supervisor API on 443. The workstation reaches child A on 22, and child B on
-  22 through the LoadBalancer created in step 3 (the namespace VPC is not routed to it).
+  child B reaches the Supervisor API on 443; each child reaches the registry of `HUB_CHILD_IMAGE`
+  (host and port as Traefik Labs indicates with the build). The workstation reaches child A on 22,
+  and child B on 22 through the LoadBalancer created in step 3 (the namespace VPC is not routed to it).
 * An SSH key pair on the workstation that works without a prompt (no passphrase, or loaded in
   `ssh-agent`): steps 4, 6 and 7 call `ssh` and `scp` about twelve times, some inside loops. A Linux
   workstation (`base64 -w0`) with curl 7.84 or later (the dashboard credentials are read from a
@@ -80,7 +82,7 @@ used in every expected output of this folder.
 | `VMSVC_IMAGE` | `vmi-9f8e7d6c5b4a39281` | `kubectl --context "$SUPERVISOR_CONTEXT" -n "$VSPHERE_NAMESPACE" get virtualmachineimages`: the `vmi-…` name of the Ubuntu 24.04 VM Service image of Requirements |
 | `VM_CLASS` | `best-effort-medium` | fixed by this validation; the class added in [Step 1, step 4](1_CONFIGURE_SUPERVISOR.md) |
 | `STORAGE_CLASS` | `vsan-esa-default-policy-raid5` | `kubectl --context "$SUPERVISOR_CONTEXT" -n "$VSPHERE_NAMESPACE" get storageclasses`: the storage policy assigned in [Step 1, step 4](1_CONFIGURE_SUPERVISOR.md) |
-| `HUB_CHILD_IMAGE` | `ghcr.io/traefik/traefik-hub:vmware-vks.ea0` | fixed by this validation (validation build) |
+| `HUB_CHILD_IMAGE` | | the image reference that Traefik Labs (see the Early Access note under Versions) supplies with the Early Access build, together with its access instructions; the child VMs must be able to pull it (see Requirements) |
 | `SSH_KEY` | `~/.ssh/id_ed25519` | your SSH private key; its public key `$SSH_KEY.pub` goes into the cloud-init of the VMs |
 | `WORK` | `~/traefik-vks-work` | fixed: the working directory of all guides, outside the repository |
 | `HUB_TOKEN` (prompt) | | Traefik Hub Online Dashboard → the gateway you created → token (offline, multi-cluster feature) |
@@ -104,7 +106,7 @@ export VM_TEMPLATE="<template_inventory_path>"
 export VMSVC_IMAGE="<vm_service_image_name>"
 export VM_CLASS="best-effort-medium"
 export STORAGE_CLASS="vsan-esa-default-policy-raid5"
-export HUB_CHILD_IMAGE="ghcr.io/traefik/traefik-hub:vmware-vks.ea0"
+export HUB_CHILD_IMAGE="<image_from_traefik_labs>"
 export SSH_KEY="$HOME/.ssh/id_ed25519"
 export WORK="$HOME/traefik-vks-work"; mkdir -p "$WORK"; chmod 700 "$WORK"
 env | grep -E '^(DOMAIN|VCENTER|SUPERVISOR_IP|SUPERVISOR_CONTEXT|VSPHERE_NAMESPACE|CLUSTER_CONTEXT|VM_FOLDER|RESOURCE_POOL|DATASTORE|VM_NETWORK|VM_TEMPLATE|VMSVC_IMAGE|HUB_CHILD_IMAGE)=.*<' \
@@ -319,7 +321,7 @@ ssh -n -F "$WORK/ssh_config" child-a 'curl -s http://127.0.0.1:8080/api/http/ser
 ```
 
 <details>
-<summary>Expected output</summary>
+<summary>Expected output (a first run also prints the image pull lines)</summary>
 
 ```text
  Volume traefik-child-a_traefik-hub-data  Creating
@@ -363,7 +365,7 @@ ssh -n -F "$WORK/ssh_config" child-b 'curl -s http://127.0.0.1:8080/api/http/ser
 ```
 
 <details>
-<summary>Expected output (a first run prints <code>created</code> instead of <code>unchanged</code>)</summary>
+<summary>Expected output (a first run prints <code>created</code> instead of <code>unchanged</code>, and the image pull lines)</summary>
 
 ```text
 serviceaccount/traefik-vmoperator unchanged
@@ -510,12 +512,12 @@ unset HUB_TOKEN VCENTER_PASSWORD GOVC_PASSWORD DASHBOARD_PASSWORD
 ```
 
 > Validation status: steps 2, 3, 5 and 8 and Cleanup validated on VKS 3.7.0 / vCenter 9.0.2 on
-> 2026-10-02 with the validation build `vmware-vks.ea0` (Traefik Hub commit b63513d5); steps 2, 3, 8
+> 2026-10-02 with the Early Access child build; steps 2, 3, 8
 > and Cleanup changed shape in this revision without a re-run (same govc, kubectl and helm operations,
 > written out; the step 7 token poll became `kubectl wait`). Steps 1, 4, 6, 7 and Verification 1–3
 > re-run verbatim on the same lab on 2026-10-04 with the Compose-based procedure of this revision
 > (Docker Compose 2.40.3 from Ubuntu 24.04 noble-updates on the children; child image built from the
-> same provider branch as the validation build); the step 5 certificates and the step 8 parent
+> same provider branch as the 2026-10-02 build); the step 5 certificates and the step 8 parent
 > configuration of 2026-10-02 were reused. Expected outputs show the example environment of the
 > README, with the lab's addresses and names replaced by role (each VM and address keeps one example
 > value across runs). The child A provider ran with the operator's account, already limited to the

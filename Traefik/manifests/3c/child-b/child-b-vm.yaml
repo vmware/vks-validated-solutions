@@ -8,8 +8,9 @@ metadata:
 stringData:
   user-data: |
     #cloud-config
-    # Child B gateway VM: Docker, Docker Compose and the tools the guide uses. guestinfo.userdata is readable by
-    # anyone who can read the VM, so it carries no secret: only your SSH public key.
+    # Child B gateway VM: Docker, Docker Compose and the tools the guide uses. This Secret, and the
+    # guestinfo.userdata that VM Service writes from it, are readable by anyone who can read Secrets in
+    # the namespace or the VM in vCenter, so it carries no secret: only your SSH public key.
     users:
       - default
       - name: ubuntu

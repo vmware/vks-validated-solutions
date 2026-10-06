@@ -1,5 +1,5 @@
-# The VKS cluster traefik-c2 used for this validation, applied to the Supervisor with -n (your
-# vSphere Namespace, guide 2 step 5). Cluster API reconciles it into a running cluster.
+# The VKS cluster traefik-c2 used for this validation, applied to the Supervisor with -n
+# (your vSphere Namespace, guide 2 step 5). Cluster API reconciles it into a cluster.
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
 metadata:

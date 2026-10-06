@@ -9,7 +9,8 @@ https://www.vmware.com/docs/isv-traefik-vks
 ## Versions
 * Traefik Helm chart 41.6.1 / Traefik Proxy v3.7.13 / Traefik Hub v3.21.0
 * vSphere Kubernetes Service 3.7.0 / VKr v1.36.2, VCF 9.0 (vCenter 9.0.2)
-* Step 3C: Traefik Hub v3.21 validation build `ghcr.io/traefik/traefik-hub:vmware-vks.ea0` with the `vsphere` and `vmoperator` providers (Early Access)
+* Step 3C: the child gateways run an Early Access build of Traefik Hub v3.21 with the `vsphere` and
+  `vmoperator` providers. To evaluate Step 3C, [contact Traefik Labs](https://info.traefik.io/en/request-demo), which provides the build and supports the installation.
 
 ## References
 * [vSphere Supervisor Platform](https://techdocs.broadcom.com/us/en/vmware-cis/vcf/vcf-9-0-and-later/9-0/vsphere-supervisor-installation-and-configuration.html)
@@ -52,7 +53,7 @@ and Docker Compose v2 on the child VMs ([Step 2, Requirements](2_VKS_DEPLOYMENT.
 Every guide starts with a "Your values" table: your variables, an example value and where to find
 it. Commands, manifests and expected outputs use one example environment, built from names and
 ranges reserved for documentation (RFC 2606 domains, RFC 5737 networks), so that a copied example
-fails fast instead of reaching someone else's systems. The validation ran on a partner lab; its
+fails fast instead of reaching someone else's systems. The validation ran on a Broadcom lab; its
 addresses and names were replaced by role, one example value per VM, address and host.
 
 | What | Example value |
