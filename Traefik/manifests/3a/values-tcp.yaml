@@ -1,8 +1,0 @@
-# Entry point "tcp" on port 9000, exposed on the LoadBalancer Service, for TCPRoute.
-ports:
-  tcp:
-    port: 9000
-    exposedPort: 9000
-    protocol: TCP
-    expose:
-      default: true
