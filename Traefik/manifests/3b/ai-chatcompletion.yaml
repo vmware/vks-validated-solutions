@@ -1,0 +1,17 @@
+# The chat-completion middleware chatcompletion: every request uses the model
+# qwen2.5:0.5b and gets default parameters (AI Gateway).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: chatcompletion
+  namespace: apps
+spec:
+  plugin:
+    chat-completion:
+      model: qwen2.5:0.5b          # the model that each request uses
+      allowModelOverride: false    # replace the model of the request
+      allowParamsOverride: true    # the request can set the params
+      params:                      # defaults added to each request
+        temperature: 1
+        topP: 1
+        maxTokens: 512
