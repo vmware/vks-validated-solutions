@@ -1,0 +1,16 @@
+# The wildcard certificate traefik-tls for the lab domain, used by the Gateway
+# HTTPS listener and as Traefik's default certificate.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: traefik-tls
+  namespace: traefik
+spec:
+  secretName: traefik-tls
+  dnsNames:
+    - "*.example.com"
+  privateKey:
+    rotationPolicy: Always
+  issuerRef:
+    kind: ClusterIssuer
+    name: traefik-ca
