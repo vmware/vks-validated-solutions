@@ -1,0 +1,38 @@
+# The Gateway traefik: HTTPS on the websecure entry point (8443, port 443 on the
+# LoadBalancer) with the certificate traefik-tls, and HTTP on web (8000, port 80).
+# Adds the listener tcp on port 9000 for TCPRoute objects.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: https
+      hostname: "*.example.com"
+      port: 8443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: traefik-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: http
+      hostname: "*.example.com"
+      port: 8000
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: tcp
+      protocol: TCP
+      port: 9000
+      allowedRoutes:
+        namespaces:
+          from: Same
+        kinds:
+          - kind: TCPRoute

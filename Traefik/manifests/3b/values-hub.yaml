@@ -1,0 +1,13 @@
+# Upgrade the Traefik release to Traefik Hub v3.21.0 (chart 41.6.1 picks the image
+# when hub.token is set). hub.token is the name of the license Secret, not the token.
+hub:
+  token: traefik-hub-license
+  # Offline license token: the gateway validates it locally, with no call home.
+  # Remove this line for a connected token.
+  offline: true
+  apimanagement:
+    enabled: true
+  aigateway:
+    enabled: true
+  mcpgateway:
+    enabled: true
