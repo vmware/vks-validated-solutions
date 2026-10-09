@@ -1,0 +1,54 @@
+# The VKS cluster traefik-c2 used for this validation, applied to the Supervisor with -n
+# (your vSphere Namespace, guide 2 step 5). Cluster API reconciles it into a cluster.
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: traefik-c2
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks: ["192.168.0.0/16"]
+    services:
+      cidrBlocks: ["10.96.0.0/12"]
+    serviceDomain: cluster.local
+  topology:
+    classRef:
+      name: builtin-generic-v3.7.0
+      namespace: vmware-system-vks-public
+    version: v1.36.2+vmware.2
+    controlPlane:
+      replicas: 1
+      metadata:
+        annotations:
+          run.tanzu.vmware.com/resolve-os-image: os-name=ubuntu,os-version=24.04
+    workers:
+      machineDeployments:
+        - class: node-pool
+          name: node-pool-1
+          replicas: 2
+          metadata:
+            annotations:
+              run.tanzu.vmware.com/resolve-os-image: os-name=ubuntu,os-version=24.04
+    variables:
+      - name: vmClass
+        value: best-effort-medium
+      - name: storageClass
+        value: vsan-esa-default-policy-raid5
+      - name: vsphereOptions
+        value:
+          persistentVolumes:
+            defaultStorageClass: vsan-esa-default-policy-raid5
+      - name: kubernetes
+        value:
+          certificateRotation:
+            enabled: true
+            renewalDaysBeforeExpiry: 90
+          security:
+            podSecurityStandard:
+              deactivated: false
+              enforce: baseline
+      - name: bootstrapAddons
+        value:
+          cniRef:
+            name: antrea
+            namespace: vmware-system-vks-public

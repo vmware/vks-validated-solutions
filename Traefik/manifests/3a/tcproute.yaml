@@ -1,0 +1,15 @@
+# The TCPRoute echo-tcp, which sends the TCP traffic of the listener tcp
+# to the Service echo.
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: echo-tcp
+  namespace: traefik
+spec:
+  parentRefs:
+    - name: traefik
+      sectionName: tcp   # the TCP listener on port 9000
+  rules:
+    - backendRefs:
+        - name: echo     # the whoami Service
+          port: 1027

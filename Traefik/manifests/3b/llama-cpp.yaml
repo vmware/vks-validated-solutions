@@ -1,0 +1,49 @@
+# The llama.cpp server llm with the Qwen2.5 0.5B model and its ClusterIP
+# Service llm on port 11434 (AI Gateway, step 1).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm
+  namespace: apps
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: llm } }
+  template:
+    metadata: { labels: { app: llm } }
+    spec:
+      containers:
+        - name: llama
+          image: ghcr.io/ggml-org/llama.cpp:server
+          args:
+            - -hf                   # download the model from Hugging Face
+            - Qwen/Qwen2.5-0.5B-Instruct-GGUF
+            - --alias               # the model name that the server reports
+            - qwen2.5:0.5b
+            - --port
+            - "11434"
+            - --host
+            - 0.0.0.0
+          env: [{ name: LLAMA_CACHE, value: /cache }]
+          ports: [{ containerPort: 11434 }]
+          # /health answers 503 while the model loads and 200 when the
+          # server is ready: the pod becomes Ready only after the load
+          readinessProbe:
+            httpGet: { path: /health, port: 11434 }
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts: [{ name: cache, mountPath: /cache }]
+          resources:
+            requests: { cpu: 500m, memory: 1Gi, ephemeral-storage: 2Gi }
+            limits: { cpu: "2", memory: 3Gi, ephemeral-storage: 3Gi }
+      volumes:
+        - name: cache               # model cache, about 0.5 GB
+          emptyDir: { sizeLimit: 2Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm
+  namespace: apps
+spec:
+  selector: { app: llm }
+  ports: [{ port: 11434, targetPort: 11434 }]
