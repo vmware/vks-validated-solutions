@@ -142,8 +142,8 @@ For a cross-vCenter migration, a Supervisor `VolumeSnapshot` is used to preserve
 Unlike the same-Supervisor, different-namespace case, the source Supervisor PVC does **not** need to be rebound into another namespace on the same Supervisor. The destination vCenter has its own CNS inventory, so the migrated FCD can be registered with the destination Supervisor using `CnsRegisterVolume`.
 
 ```text
-Source vCenter                                      Destination vCenter
-==============                                      ===================
+Source vCenter                                            Destination vCenter
+==============                                            ===================
 
 VKS PVC/PV
     │
