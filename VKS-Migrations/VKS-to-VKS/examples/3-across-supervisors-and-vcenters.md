@@ -1,4 +1,4 @@
-# Example 3: Across Supervisors and vCenters
+# Example 3: Across Supervisors and/or vCenters
 
 > [!CAUTION]
 > These procedures are proofs of concept. Test them with disposable workloads before using them with production data. Quiesce the application and take an independent backup before modifying storage objects.

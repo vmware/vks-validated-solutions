@@ -12,7 +12,7 @@ Three migration scenarios are covered:
 |---|---|---:|
 | Same Supervisor **and same Supervisor namespace** | Supervisor `VolumeSnapshot`; reuse the existing Supervisor PVC | No |
 | Same Supervisor, **different Supervisor namespaces** | Powered-off helper VM + `govc volume.rm -keep` + `CnsRegisterVolume` | **No** |
-| Different Supervisors **and vCenters** | Supervisor `VolumeSnapshot` + helper VM + cross-vCenter Storage vMotion + `CnsRegisterVolume` | **No** |
+| Different Supervisors **and/or vCenters** | Supervisor `VolumeSnapshot` + helper VM + cross-vCenter Storage vMotion (if needed) + `CnsRegisterVolume` | **No** |
 
 > [!CAUTION]
 > These procedures are proofs of concept. Rehearse them with disposable workloads, quiesce the application, and retain an independent application-consistent backup before modifying storage objects.
@@ -135,7 +135,7 @@ This path requires normal namespaced Supervisor access plus sufficient vCenter p
 
 See [Example 2: Same Supervisor, different namespace](examples/2-same-supervisor-different-namespace.md).
 
-## Scenario 3: Across Supervisors and vCenters
+## Scenario 3: Across Supervisors and/or vCenters
 
 For a cross-vCenter migration, a Supervisor `VolumeSnapshot` is used to preserve the source Supervisor PVC/PV/FCD relationship while the source VKS objects are removed. The FCD is then attached to a helper VM and moved to the destination vCenter using cross-vCenter Storage vMotion.
 
@@ -154,15 +154,15 @@ Supervisor PV
     │
    FCD
     │
-helper VM ───────── cross-vCenter Storage vMotion ─────► helper VM
-                                                          │
-                                                         FCD
-                                                          │
-                                                  CnsRegisterVolume
-                                                          │
-                                                  Supervisor PVC/PV
-                                                          │
-                                                   destination VKS
+helper VM ───────── X-vCenter Storage vMotion (if needed)─────► helper VM
+                                                                   │
+                                                                  FCD
+                                                                   │
+                                                            CnsRegisterVolume
+                                                                   │
+                                                            Supervisor PVC/PV
+                                                                   │
+                                                             Destination VKS
 ```
 
 High-level flow:
@@ -172,7 +172,7 @@ High-level flow:
 3. Create and verify a Supervisor `VolumeSnapshot` for the source volume.
 4. Delete the source VKS PVC/PV while the snapshot preserves the Supervisor storage relationship.
 5. Attach the FCD to a powered-off helper VM.
-6. Perform cross-vCenter Storage vMotion of the helper VM and attached disk.
+6. Perform cross-vCenter Storage vMotion of the helper VM (if needed) and attached disk.
 7. Re-discover and verify the migrated FCD identity on the destination vCenter.
 8. Detach the migrated FCD from the helper VM **without deleting the disk**.
 9. Create `CnsRegisterVolume` in the destination Supervisor namespace using the migrated FCD UUID.
@@ -182,7 +182,7 @@ High-level flow:
 
 Cross-vCenter Storage vMotion may transfer storage blocks. The workflow avoids a Kubernetes-level or filesystem-level data copy, but it does not imply that no storage data moves between vCenters.
 
-See [Example 3: Across Supervisors and vCenters](examples/3-across-supervisors-and-vcenters.md).
+See [Example 3: Across Supervisors and/or vCenters](examples/3-across-supervisors-and-vcenters.md).
 
 ## Worked Examples
 
