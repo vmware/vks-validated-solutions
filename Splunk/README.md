@@ -1,9 +1,23 @@
-# Splunk Observability Cloud on VKS
+# Splunk Observability Cloud and AppDynamics on VKS
 
 This example installs the Splunk OpenTelemetry Collector Helm chart on a
 VMware vSphere Kubernetes Service (VKS) cluster. It keeps the VKS-specific
 configuration separate from the cluster identity and keeps the Splunk access
 token out of Helm values and Helm release history.
+
+Splunk Observability Cloud provides the Kubernetes infrastructure and
+OpenTelemetry application view. The optional
+[AppDynamics validation](appdynamics/README.md) adds Kubernetes visibility in
+the AppDynamics Controller, alongside that existing telemetry path. It also
+describes a separate Java auto-instrumentation extension for AppDynamics APM.
+Start with the collector installation below, then add the Cluster Agent.
+
+The Astronomy Shop manifest already includes OpenTelemetry instrumentation,
+including a Splunk Java agent. The default AppDynamics configuration monitors
+`astro-shop` without injecting another application agent. These are two
+complementary views of the same VKS environment; installing the Cluster Agent
+does not automatically federate the backends or send AppDynamics transactions
+to Observability Cloud.
 
 The example is intentionally small:
 

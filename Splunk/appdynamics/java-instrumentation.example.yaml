@@ -1,0 +1,18 @@
+# Optional overlay: use only with a separate Java test workload that does not
+# already load an OTel/APM agent. Replace the image tag before using.
+clusterAgent:
+  nsToMonitorRegex: "^(astro-shop|appd-java-validation)$"
+
+instrumentationConfig:
+  enabled: true
+  instrumentationMethod: Env
+  nsToInstrumentRegex: "^appd-java-validation$"
+  defaultAppName: VKS-Java-Validation
+  imageInfo:
+    java:
+      image: "docker.io/appdynamics/java-agent:<validated-java-agent-tag>"
+      agentMountPath: /opt/appdynamics
+      imagePullPolicy: IfNotPresent
+  instrumentationRules:
+    - namespaceRegex: "^appd-java-validation$"
+      language: java

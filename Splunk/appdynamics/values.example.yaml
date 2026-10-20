@@ -1,0 +1,22 @@
+# Copy to appdynamics/values.yaml. Credentials belong in cluster-agent-secret.
+installClusterAgent: true
+installInfraViz: false
+# Retain the separately installed, VKS-configured collector.
+installSplunkOtelCollector: false
+
+controllerInfo:
+  url: https://<controller-host>:443
+  account: <controller-account>
+
+clusterAgent:
+  # Use the same base identity as clusterName in cluster-values.yaml.
+  # Chart 1.40.1848 appends "-appdynamics" (the release namespace).
+  appName: vks-test
+  nsToMonitorRegex: "^astro-shop$"
+
+instrumentationConfig:
+  enabled: false
+
+# Use the cluster's existing metrics-server.
+metrics-server:
+  enabled: false
