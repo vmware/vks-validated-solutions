@@ -1,0 +1,37 @@
+apiVersion: kubedb.com/v1
+kind: Postgres
+metadata:
+  name: pg-ha
+  namespace: demo
+spec:
+  version: "18.3"
+  replicas: 3
+  standbyMode: Hot
+  storageType: Durable
+  storage:
+    storageClassName: vsan-esa-default-policy-raid5
+    accessModes: ["ReadWriteOnce"]
+    resources:
+      requests:
+        storage: 50Gi
+  sslMode: require
+  tls:
+    issuerRef:
+      apiGroup: cert-manager.io
+      kind: Issuer
+      name: pg-ca-issuer
+  podTemplate:
+    spec:
+      containers:
+        - name: postgres
+          resources:
+            requests: { cpu: "2", memory: 8Gi }
+            limits: { memory: 8Gi }
+  monitor:
+    agent: prometheus.io/operator
+    prometheus:
+      serviceMonitor:
+        labels:
+          release: kube-prometheus-stack
+        interval: 30s
+  deletionPolicy: Delete

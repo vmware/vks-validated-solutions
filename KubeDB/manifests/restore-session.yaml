@@ -1,0 +1,12 @@
+apiVersion: core.kubestash.com/v1alpha1
+kind: RestoreSession
+metadata: { name: pg-ha-restore, namespace: demo }
+spec:
+  target: { apiGroup: kubedb.com, kind: Postgres, namespace: demo, name: pg-restored }
+  dataSource:
+    repository: pg-ha-repo
+    snapshot: latest
+    encryptionSecret: { namespace: demo, name: encrypt-secret }
+  addon:
+    name: postgres-addon
+    tasks: [ { name: logical-backup-restore } ]

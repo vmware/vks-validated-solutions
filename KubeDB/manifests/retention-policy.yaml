@@ -1,0 +1,8 @@
+apiVersion: storage.kubestash.com/v1alpha1
+kind: RetentionPolicy
+metadata: { name: keep-14d, namespace: demo }
+spec:
+  maxRetentionPeriod: 14d
+  successfulSnapshots: { last: 14 }
+  failedSnapshots: { last: 2 }
+  usagePolicy: { allowedNamespaces: { from: Same } }

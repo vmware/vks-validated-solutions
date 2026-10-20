@@ -1,0 +1,20 @@
+apiVersion: core.kubestash.com/v1alpha1
+kind: BackupConfiguration
+metadata: { name: pg-ha-backup, namespace: demo }
+spec:
+  target: { apiGroup: kubedb.com, kind: Postgres, namespace: demo, name: pg-ha }
+  backends:
+    - name: s3-backend
+      storageRef: { namespace: demo, name: s3-storage }
+      retentionPolicy: { namespace: demo, name: keep-14d }
+  sessions:
+    - name: nightly
+      scheduler: { schedule: "0 1 * * *", jobTemplate: { backoffLimit: 1 } }
+      repositories:
+        - name: pg-ha-repo
+          backend: s3-backend
+          directory: /pg-ha
+          encryptionSecret: { namespace: demo, name: encrypt-secret }
+      addon:
+        name: postgres-addon
+        tasks: [ { name: logical-backup } ]

@@ -1,0 +1,12 @@
+apiVersion: ops.kubedb.com/v1alpha1
+kind: PostgresOpsRequest
+metadata:
+  name: pg-ha-expand
+  namespace: demo
+spec:
+  type: VolumeExpansion
+  databaseRef:
+    name: pg-ha
+  volumeExpansion:
+    mode: Online
+    postgres: 100Gi

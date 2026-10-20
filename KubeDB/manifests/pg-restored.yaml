@@ -1,0 +1,19 @@
+apiVersion: kubedb.com/v1
+kind: Postgres
+metadata:
+  name: pg-restored
+  namespace: demo
+spec:
+  init:
+    waitForInitialRestore: true
+  version: "18.3"
+  replicas: 3
+  standbyMode: Hot
+  storageType: Durable
+  storage:
+    storageClassName: vsan-esa-default-policy-raid5
+    accessModes: ["ReadWriteOnce"]
+    resources:
+      requests:
+        storage: 100Gi
+  deletionPolicy: Delete

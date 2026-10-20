@@ -1,0 +1,11 @@
+apiVersion: ops.kubedb.com/v1alpha1
+kind: PostgresOpsRequest
+metadata:
+  name: pg-ha-scale-3
+  namespace: demo
+spec:
+  type: HorizontalScaling
+  databaseRef:
+    name: pg-ha
+  horizontalScaling:
+    replicas: 3

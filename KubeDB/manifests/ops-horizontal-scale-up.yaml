@@ -1,0 +1,12 @@
+# With an even replica count, KubeDB adds an arbiter pod (pg-ha-arbiter-0).
+apiVersion: ops.kubedb.com/v1alpha1
+kind: PostgresOpsRequest
+metadata:
+  name: pg-ha-scale-4
+  namespace: demo
+spec:
+  type: HorizontalScaling
+  databaseRef:
+    name: pg-ha
+  horizontalScaling:
+    replicas: 4

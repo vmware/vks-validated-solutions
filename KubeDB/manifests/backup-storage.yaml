@@ -1,0 +1,15 @@
+apiVersion: storage.kubestash.com/v1alpha1
+kind: BackupStorage
+metadata: { name: s3-storage, namespace: demo }
+spec:
+  storage:
+    provider: s3
+    s3:
+      endpoint: https://s3.example.internal
+      bucket: kubedb-backups
+      region: us-east-1
+      prefix: /vks/kubedb-vks-01
+      secretName: s3-secret
+  usagePolicy: { allowedNamespaces: { from: Same } }
+  default: false
+  deletionPolicy: Delete
