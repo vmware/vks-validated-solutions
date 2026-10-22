@@ -22,7 +22,7 @@ The workstation running these commands requires:
 
 - `kubectl`
 - `velero`
-- `govc` 0.49.0 or later
+- [`govc`](https://github.com/vmware/govmomi/releases) 0.49.0 or later 
 - `jq`
 - Valid kubeconfig files for both VKS clusters and the shared Supervisor
 - Permission to read Supervisor PVs and to manage namespaced PVCs in the source and destination Supervisor namespaces
