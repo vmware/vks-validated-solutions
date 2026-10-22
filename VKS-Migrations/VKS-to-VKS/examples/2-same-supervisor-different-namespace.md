@@ -295,6 +295,9 @@ Supervisor PV (removed)
 `govc volume.rm -keep` requires govc 0.49.0 or later:
 
 ```bash
+# dowload the latest govc release, if needed:
+wget https://github.com/vmware/govmomi/releases/latest/download/govc_$(uname -s)_$(uname -m).tar.gz
+
 govc version
 govc volume.rm -h | grep -F -- '-keep'
 ```
