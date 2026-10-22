@@ -272,6 +272,7 @@ Supervisor PV (removed)
                                                             ▼
                                                      CnsRegisterVolume
                                                             │
+                                                            │ creates
                                                             ▼
                                                      Supervisor PVC (new)
                                                             │
