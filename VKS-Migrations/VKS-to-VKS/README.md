@@ -94,13 +94,21 @@ The validated zero-copy handover keeps the disk on the same datastore and avoids
 Before handover:
   Source VKS PVC → VKS PV → Supervisor PVC in a → Supervisor PV → FCD
 
-After source teardown, CNS unregister and old Supervisor PV cleanup:
-  Old VKS and Supervisor PVC/PV objects: gone
-  Existing FCD: preserved on its datastore, held by the powered-off helper VM
+Attach the FCD to a powered-off 'helper' VM:
+  Source VKS PVC → VKS PV → Supervisor PVC in a → Supervisor PV → FCD::[VM]
 
-After helper-disk detach, destination registration and VKS adoption:
-  New VKS PVC → VKS PV → new Supervisor PVC in b → new Supervisor PV → same FCD
-                         └──── created by CnsRegisterVolume ─────┘
+Removal of VKS PVC produces:
+  Supervisor PV → FCD::[VM]
+
+Supervisor PV is removed/unregistered with 'govc volume.rm -keep':
+  FCD::[VM]
+
+VM is removed and FCD is registered with cnsregistervolume (in the new supervisor namespace), creating new supervisor objects
+  new Supervisor PVC in b → new Supervisor PV →  FCD
+    └─── created by CnsRegisterVolume ────┘ 
+
+A new VKS PV/PVC pair can then be assigned to the supervisor PVC:
+  New VKS PVC → VKS PV → new Supervisor PVC in b → new Supervisor PV → CD
 ```
 
 High-level flow (the worked example assumes the source Supervisor PV has reclaim policy `Delete`):
