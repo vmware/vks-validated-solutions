@@ -7,7 +7,11 @@ The examples assume a filesystem volume with `ReadWriteOnce` access. Adjust `vol
 
 This example migrates a persistent volume between VKS clusters on the **same vCenter and Supervisor**, but across **different Supervisor namespaces**. It uses a powered-off helper VM as a deletion interlock, removes only the CNS registration with `govc volume.rm -keep`, and then re-registers the retained FCD in the destination namespace.
 
-This is a zero-copy storage handover: the FCD backing data is not copied, the cluster-scoped Supervisor PV is not patched, and elevated Supervisor access is not required.
+This is a zero-copy storage handover: the FCD stays on its existing datastore while the source Supervisor PVC/PV chain is replaced. The workflow reads the cluster-scoped Supervisor PV but does not patch it or directly delete it.
+
+Here, source and destination namespaces mean **Supervisor namespaces hosting the VKS clusters**. Application namespaces inside the VKS clusters may have the same name, such as `default`.
+
+Before destination registration, the old CNS registration and old Supervisor PV must both be gone while the FCD remains intact. `govc volume.rm -keep` removes the CNS registration; CSI subsequently removes the old Supervisor PV. Merely setting that PV to `Retain`, deleting its claim, or observing it in `Released` state does not complete this handover.
 
 > [!IMPORTANT]
 > Do not use a Supervisor `VolumeSnapshot` for this path. vSphere CSI prevents deletion of the source Supervisor PVC while snapshots of the volume exist.
@@ -24,18 +28,13 @@ The workstation running these commands requires:
 - Permission to read Supervisor PVs and to manage namespaced PVCs in the source and destination Supervisor namespaces
 - Permission to create `CnsRegisterVolume` objects in the destination Supervisor namespace
 - A vCenter account with sufficient privileges to create/manage the powered-off helper VM and run `govc volume.rm -keep`
-- The required destination storage policy assigned to the destination Supervisor namespace
+- The FCD's existing datastore accessible to the helper VM and destination VKS hosts within the supported Supervisor storage topology
+- The FCD's storage policy assigned to the destination Supervisor namespace and compatible with its existing datastore
+- A source Supervisor PV with reclaim policy `Delete`, as required by the CSI cleanup sequence in this example
 
 **Cluster-scoped Supervisor PV modification is not required for this workflow.**
 
-Before starting, confirm that each context points to the expected cluster:
-
-```bash
-vks-src cluster-info
-sup-src cluster-info
-vks-dst cluster-info
-sup-dst cluster-info
-```
+If an earlier attempt changed the source Supervisor PV to `Retain`, inspect the current storage chain before proceeding. This example relies on normal CSI deletion to remove the old PV; a retained PV requires a separate recovery plan. Do not switch it back to `Delete` or delete source storage objects while the FCD is unprotected.
 
 ## 1. Configure kubeconfigs and variables
 
@@ -65,6 +64,15 @@ export REGISTER_NAME=same-vcenter-fcd-migration
 
 export BACKUP_NAME="vks-migration-${SRC_VKS_NS}"
 export RESTORE_NAME="vks-migration-${DST_VKS_NS}"
+```
+
+Confirm that each context points to the expected cluster before continuing:
+
+```bash
+vks-src cluster-info
+sup-src cluster-info
+vks-dst cluster-info
+sup-dst cluster-info
 ```
 
 ## 2. Create a test volume and write identifiable data
@@ -567,7 +575,7 @@ export DEST_VOLUME_HANDLE="$DST_SUP_PVC"
 
 ## 13. Create the destination VKS PV and PVC
 
-For this workflow, the VKS PV `volumeHandle` is the newly registered destination Supervisor PVC `${DST_SUP_PVC}` in `${DST_SUP_NS}`.
+For this workflow, the VKS PV `volumeHandle` is the newly registered destination Supervisor PVC **name** `${DST_SUP_PVC}` in `${DST_SUP_NS}`. Do not put the FCD UUID here: that UUID is used by `CnsRegisterVolume` and the Supervisor PV. Continue only after Step 12 confirms successful registration and a `Bound` destination Supervisor PVC.
 
 ```bash
 vks-dst apply -f - <<EOF_DEST_VOLUME

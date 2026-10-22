@@ -1,11 +1,11 @@
-# Example 3: Across Supervisors and/or vCenters
+# Example 3: Across Supervisors and vCenters
 
 > [!CAUTION]
 > These procedures are proofs of concept. Test them with disposable workloads before using them with production data. Quiesce the application and take an independent backup before modifying storage objects.
 
 The examples assume a filesystem volume with `ReadWriteOnce` access. Adjust `volumeMode`, access modes and `fsType` for the source workload where required.
 
-This example preserves the source disk, attaches it to a helper VM, migrates the VM and disk to a destination vCenter, registers the FCD with the destination Supervisor, and adopts the resulting Supervisor PVC into a destination VKS cluster.
+This example preserves the source disk, attaches it to a helper VM, migrates the VM and disk to a destination vCenter, detaches the disk without deleting it, registers the FCD with the destination Supervisor, and adopts the resulting Supervisor PVC into a destination VKS cluster.
 
 > [!IMPORTANT]
 > Cross-vCenter vMotion may transfer the disk's storage blocks. The procedure avoids a Kubernetes-level or filesystem-level data copy, but it does not imply that no storage data is transferred by vMotion.
@@ -217,7 +217,36 @@ Before registering the disk, verify in vCenter that:
 
 Registration may fail or produce an unusable PVC if these mappings are incorrect.
 
-## 10. Register the FCD with the destination Supervisor
+## 10. Detach the migrated FCD without deleting it
+
+Detach the FCD from the powered-off helper VM before registering it or starting the destination workload. Keep `govc` configured for the destination vCenter and the datastore containing the migrated FCD.
+
+Identify the FCD backing path and compare it with the helper VM's disk devices:
+
+```bash
+govc disk.ls -L "$DEST_FCD_UUID"
+govc device.info -vm "$HELPER_VM" 'disk-*'
+```
+
+Replace `<confirmed-device-name>` below with the device whose backing file matches the migrated FCD. Do not assume that the first disk belongs to this migration. Inspect the selected device again before removing it:
+
+```bash
+export HELPER_DISK_DEVICE='<confirmed-device-name>'
+govc device.info -vm "$HELPER_VM" "$HELPER_DISK_DEVICE"
+```
+
+Once the backing file matches, detach that device with `-keep` to preserve its files:
+
+```bash
+govc device.remove -vm "$HELPER_VM" -keep "$HELPER_DISK_DEVICE"
+
+govc device.ls -vm "$HELPER_VM"
+govc disk.ls -l "$DEST_FCD_UUID"
+```
+
+Confirm that the selected device is no longer listed on the helper VM and that the FCD remains present. Do not continue if either check fails. Keep the helper VM until destination validation is complete.
+
+## 11. Register the FCD with the destination Supervisor
 
 ```bash
 sup-dst -n "$DST_SUP_NS" apply -f - <<EOF_REGISTER
@@ -249,7 +278,7 @@ sup-dst -n "$DST_SUP_NS" get \
   -o jsonpath='{.status.error}{"\n"}'
 ```
 
-## 11. Discover the destination Supervisor PV and volume size
+## 12. Discover the destination Supervisor PV and volume size
 
 ```bash
 export DST_SUP_PV=$(
@@ -278,7 +307,7 @@ test "$REGISTERED_FCD_UUID" = "$DEST_FCD_UUID"
 
 The final command must exit successfully.
 
-## 12. Adopt the destination Supervisor PVC in VKS
+## 13. Adopt the destination Supervisor PVC in VKS
 
 ```bash
 vks-dst apply -f - <<EOF_DEST_VOLUME
@@ -326,7 +355,7 @@ vks-dst -n "$DST_VKS_NS" wait \
   --timeout=5m
 ```
 
-## 13. Restore application manifests
+## 14. Restore application manifests
 
 Restore application metadata only after the destination VKS PV/PVC has been reconstructed:
 
@@ -346,7 +375,7 @@ velero restore describe "$RESTORE_NAME" \
 
 For Helm- or GitOps-managed applications, reconstructing the application from its original source of truth may be preferable. Verify that restored workloads reference `${DST_VKS_PVC}` where required.
 
-## 14. Mount the volume and validate the migrated data
+## 15. Mount the volume and validate the migrated data
 
 ```bash
 vks-dst -n "$DST_VKS_NS" apply -f - <<EOF_READER
@@ -381,24 +410,23 @@ vks-dst -n "$DST_VKS_NS" exec cross-vcenter-migration-reader -- \
 
 Validate application-level consistency before accepting the migration.
 
-## 15. Detach and remove the helper VM
+## 16. Remove the helper VM
 
-After the FCD has been registered and the destination workload validated, remove the disk from the helper VM without deleting the backing disk, then delete the helper VM.
+After the destination workload has been validated, confirm that the migrated FCD and destination PVC remain present and inspect the helper VM's remaining devices:
 
 ```bash
-# Identify the attached disk device first.
+govc disk.ls -l "$DEST_FCD_UUID"
+sup-dst -n "$DST_SUP_NS" get pvc "$DST_SUP_PVC"
 govc device.info -vm "$HELPER_VM"
+```
 
-# Use the appropriate device name returned above. Do not pass -destroy.
-# Example only:
-# govc device.remove -vm "$HELPER_VM" disk-1000-1
+The migrated FCD must already be detached. Detach any other disks you intend to preserve with `govc device.remove -keep` before deleting the VM; `govc vm.destroy` deletes disks that remain attached.
 
+```bash
 govc vm.destroy "$HELPER_VM"
 ```
 
-Confirm that the FCD and destination PVC remain present before deleting the VM.
-
-## 16. Source cleanup
+## 17. Source cleanup
 
 Complete source cleanup only after destination validation and migration acceptance.
 
@@ -441,7 +469,9 @@ sup-src -n "$SRC_SUP_NS" delete pvc "$SUP_PVC"
 - [ ] FCD was attached to a powered-off helper VM before cross-vCenter migration.
 - [ ] Destination FCD UUID was rediscovered and verified after vMotion.
 - [ ] Destination storage policy/datastore compatibility was verified.
+- [ ] Migrated FCD was detached with `device.remove -keep` and remained present before destination registration.
 - [ ] `CnsRegisterVolume` created the destination Supervisor PVC/PV.
 - [ ] Destination Supervisor PV references the expected destination FCD UUID.
 - [ ] Destination VKS PV uses the destination Supervisor PVC name as `volumeHandle`.
 - [ ] Destination workload mounted and validated the data before source cleanup.
+- [ ] Helper VM was removed only after validation and after detaching every disk intended for preservation.
