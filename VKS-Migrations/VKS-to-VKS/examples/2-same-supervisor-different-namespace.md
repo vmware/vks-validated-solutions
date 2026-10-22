@@ -259,22 +259,23 @@ Rather than modifying the cluster-scoped Supervisor PV, this path temporarily re
 Source Supervisor namespace                         Destination Supervisor namespace
 ===========================                         =================================
 
-Supervisor PVC (old)
+Supervisor PVC (removed)
+        x
+Supervisor PV (removed)
+        x
+        x
+       FCD  ────── govc volume.rm -keep ──────►       retained FCD (old supervisor PV/PVC removed)
         │
-Supervisor PV (old)
-        │
-        ▼
-   CNS volume  ────── govc volume.rm -keep ──────►  retained FCD
-        │                                                   │
-        └──── source CSI DeleteVolume blocked               │
-              by powered-off helper VM                      │
+       [VM]                                                 │
+        └──── DeleteVolume blocked                          │
+              by powered-off 'helper' VM                    │
                                                             ▼
-                                                   CnsRegisterVolume
+                                                     CnsRegisterVolume
                                                             │
                                                             ▼
-                                                   Supervisor PVC (new)
+                                                     Supervisor PVC (new)
                                                             │
-                                                   Supervisor PV (new)
+                                                     Supervisor PV (new)
 ```
 
 > [!IMPORTANT]
