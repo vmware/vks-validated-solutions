@@ -200,6 +200,7 @@ kubectl --kubeconfig="${SUPERVISOR_KUBECONFIG}" \
 ## Worked example
 
 See [`OCP-VKS-migration-example.md`](OCP-VKS-migration-example.md) for a complete OpenShift-to-VKS walkthrough.
+For a visual demo, see [Turtle Demo](https://github.com/darkmesh-b/turtle-pv-demo)
 
 ## Related documentation
 
