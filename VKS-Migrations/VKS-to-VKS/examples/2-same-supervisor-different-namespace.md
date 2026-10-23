@@ -296,7 +296,7 @@ Supervisor PV (removed)
 
 ```bash
 # dowload the latest govc release, if needed:
-wget https://github.com/vmware/govmomi/releases/latest/download/govc_$(uname -s)_$(uname -m).tar.gz
+curl -sL https://github.com/vmware/govmomi/releases/latest/download/govc_$(uname -s)_$(uname -m).tar.gz | sudo tar -xz -C /usr/local/bin govc
 
 govc version
 govc volume.rm -h | grep -F -- '-keep'
