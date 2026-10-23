@@ -486,16 +486,22 @@ Do not continue if the backing disk has disappeared or if the source PV is not i
 
 ## 9. Remove the CNS registration but keep the FCD
 
-This is the handover operation. Check the query contents to verify removal: `govc volume.ls` can succeed with empty output when the registration is absent; the tested JSON response was `{"volume":null}`. A failed query is an error, not proof of absence.
+This is the handover operation. After `govc volume.rm -keep`, the expected result is **no CNS registration**, while the backing FCD must still exist. `govc volume.ls` queries CNS; use `govc disk.ls` to check the retained disk independently.
+
+Check the query contents to verify removal. `govc volume.ls` can return exit status `0` with no matching volume, so `if govc volume.ls ...; then ...; fi` cannot distinguish presence from absence. In JSON mode, `{"volume":null}` or `{"volume":[]}` confirms absence; a nonempty `volume` array means the registration remains. A failed query, empty JSON output, or unexpected response is an error, not proof of absence.
 
 ```bash
 verify_cns_absent() {
   local cns_json
   cns_json=$(govc volume.ls -json "$FCD_UUID") || return 1
-  printf '%s\n' "$cns_json" | jq -e 'has("volume") and ((.volume // []) | length == 0)' >/dev/null || {
+  # Require one JSON response with an explicitly null or empty volume list.
+  printf '%s\n' "$cns_json" | jq -se '
+    length == 1 and (.[0] | has("volume") and (.volume == null or .volume == []))
+  ' >/dev/null || {
     echo 'ERROR: CNS volume is still registered or the response schema is unexpected' >&2
     return 1
   }
+  printf 'Confirmed: CNS registration %s is absent\n' "$FCD_UUID"
 }
 
 unregister_keep_disk() {
