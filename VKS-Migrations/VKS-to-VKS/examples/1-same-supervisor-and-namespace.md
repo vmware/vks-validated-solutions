@@ -5,6 +5,8 @@
 
 The examples assume a filesystem volume with `ReadWriteOnce` access. Adjust `volumeMode`, access modes and `fsType` for the source workload where required.
 
+Run one numbered step at a time in an interactive Bash or zsh shell. Guarded steps use named functions so a failed check stops that function without explicitly exiting your shell. Do not continue to later steps after an error. See the [execution guidance](README.md#running-the-commands), including the caveat for shells that already enable `set -e`.
+
 This example migrates a persistent volume between VKS clusters on the **same vCenter**, where both clusters use the **same Supervisor namespace**. The existing Supervisor PVC remains the VKS-facing storage identity, and a Supervisor `VolumeSnapshot` protects the backing volume while the source VKS objects are replaced.
 
 > [!IMPORTANT]
@@ -19,14 +21,6 @@ The workstation running these commands requires:
 - Valid kubeconfig files for both VKS clusters and the Supervisor
 - Permission to read the Supervisor PV associated with the migration and to manage namespaced PVCs and `VolumeSnapshot` objects
 - A destination VKS cluster using the **same Supervisor namespace** as the source
-
-Before starting, confirm that each context points to the expected cluster:
-
-```bash
-vks-src cluster-info
-sup-src cluster-info
-vks-dst cluster-info
-```
 
 ## 1. Configure kubeconfigs and variables
 
@@ -55,6 +49,14 @@ export SUP_SNAPSHOT_CLASS=volumesnapshotclass-delete
 
 export BACKUP_NAME="vks-migration-${SRC_VKS_NS}"
 export RESTORE_NAME="vks-migration-${DST_VKS_NS}"
+```
+
+Confirm that each context points to the expected cluster before continuing:
+
+```bash
+vks-src cluster-info
+sup-src cluster-info
+vks-dst cluster-info
 ```
 
 ## 2. Create a test volume and write identifiable data
@@ -87,9 +89,20 @@ metadata:
   name: migration-test-writer
 spec:
   restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
   containers:
     - name: writer
       image: busybox:1.36
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
       command: ["sh", "-c"]
       args:
         - |
@@ -118,49 +131,61 @@ vks-src -n "$SRC_VKS_NS" exec migration-test-writer -- \
 ## 3. Discover and record the storage chain
 
 ```bash
-export SRC_VKS_PV=$(
-  vks-src -n "$SRC_VKS_NS" get pvc "$SRC_VKS_PVC" \
-    -o jsonpath='{.spec.volumeName}'
-)
+discover_source_volume() {
+  SRC_VKS_PV=$(
+    vks-src -n "$SRC_VKS_NS" get pvc "$SRC_VKS_PVC" \
+      -o jsonpath='{.spec.volumeName}'
+  ) || return 1
+  test -n "$SRC_VKS_PV" || { echo "ERROR: source PVC has no bound PV" >&2; return 1; }
 
-export VKS_PVC_SIZE=$(
-  vks-src get pv "$SRC_VKS_PV" \
-    -o jsonpath='{.spec.capacity.storage}'
-)
+  VKS_PVC_SIZE=$(
+    vks-src get pv "$SRC_VKS_PV" \
+      -o jsonpath='{.spec.capacity.storage}'
+  ) || return 1
 
-export SUP_PVC=$(
-  vks-src get pv "$SRC_VKS_PV" \
-    -o jsonpath='{.spec.csi.volumeHandle}'
-)
+  SUP_PVC=$(
+    vks-src get pv "$SRC_VKS_PV" \
+      -o jsonpath='{.spec.csi.volumeHandle}'
+  ) || return 1
+  test -n "$SUP_PVC" || { echo "ERROR: source PV has no Supervisor PVC handle" >&2; return 1; }
 
-export SUP_PV=$(
-  sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
-    -o jsonpath='{.spec.volumeName}'
-)
+  SUP_PV=$(
+    sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
+      -o jsonpath='{.spec.volumeName}'
+  ) || return 1
+  test -n "$SUP_PV" || { echo "ERROR: Supervisor PVC has no bound PV" >&2; return 1; }
 
-export FCD_UUID=$(
-  sup-src get pv "$SUP_PV" \
-    -o jsonpath='{.spec.csi.volumeHandle}'
-)
+  FCD_UUID=$(
+    sup-src get pv "$SUP_PV" \
+      -o jsonpath='{.spec.csi.volumeHandle}'
+  ) || return 1
+  test -n "$FCD_UUID" && test -n "$VKS_PVC_SIZE" || {
+    echo "ERROR: source FCD UUID or volume size is empty" >&2
+    return 1
+  }
 
-export SUP_STORAGE_CLASS=$(
-  sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
-    -o jsonpath='{.spec.storageClassName}'
-)
+  SUP_STORAGE_CLASS=$(
+    sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
+      -o jsonpath='{.spec.storageClassName}'
+  ) || return 1
 
-export SUP_ACCESS_MODE=$(
-  sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
-    -o jsonpath='{.spec.accessModes[0]}'
-)
+  SUP_ACCESS_MODE=$(
+    sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
+      -o jsonpath='{.spec.accessModes[0]}'
+  ) || return 1
 
-printf '%-22s %s\n' \
-  'VKS PVC:' "$SRC_VKS_NS/$SRC_VKS_PVC" \
-  'VKS PV:' "$SRC_VKS_PV" \
-  'PVC size:' "$VKS_PVC_SIZE" \
-  'Supervisor PVC:' "$SRC_SUP_NS/$SUP_PVC" \
-  'Supervisor PV:' "$SUP_PV" \
-  'Supervisor policy:' "$SUP_STORAGE_CLASS" \
-  'FCD UUID:' "$FCD_UUID"
+  export SRC_VKS_PV VKS_PVC_SIZE SUP_PVC SUP_PV FCD_UUID SUP_STORAGE_CLASS SUP_ACCESS_MODE
+
+  printf '%-22s %s\n' \
+    'VKS PVC:' "$SRC_VKS_NS/$SRC_VKS_PVC" \
+    'VKS PV:' "$SRC_VKS_PV" \
+    'PVC size:' "$VKS_PVC_SIZE" \
+    'Supervisor PVC:' "$SRC_SUP_NS/$SUP_PVC" \
+    'Supervisor PV:' "$SUP_PV" \
+    'Supervisor policy:' "$SUP_STORAGE_CLASS" \
+    'FCD UUID:' "$FCD_UUID"
+}
+discover_source_volume
 ```
 
 Save these values before continuing.
@@ -184,7 +209,7 @@ Stop all pods that write to the PVC. The example pod is deleted here:
 
 ```bash
 vks-src -n "$SRC_VKS_NS" delete pod migration-test-writer \
-  --wait=true
+  --wait=true --timeout=5m
 ```
 
 For a Deployment or StatefulSet, scale it to zero instead.
@@ -192,9 +217,16 @@ For a Deployment or StatefulSet, scale it to zero instead.
 Check for remaining VKS `VolumeAttachment` objects:
 
 ```bash
-vks-src get volumeattachments \
-  -o custom-columns=NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName \
-  | grep -F "$SRC_VKS_PV" || true
+check_source_detached() {
+  local attachments
+  attachments=$(vks-src get volumeattachments \
+    -o custom-columns=NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName) || return 1
+  if printf '%s\n' "$attachments" | grep -F "$SRC_VKS_PV"; then
+    echo "ERROR: the source volume still has a VolumeAttachment" >&2
+    return 1
+  fi
+}
+check_source_detached
 ```
 
 Do not continue while the source volume remains attached to a running workload.
@@ -253,12 +285,14 @@ sup-src -n "$SRC_SUP_NS" get volumesnapshot "$SUP_SNAPSHOT" -o wide
 ## 7. Delete the source VKS PVC and PV
 
 ```bash
-vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" \
-  --wait=true
+remove_source_vks_volume() {
+  vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" \
+    --wait=true --timeout=5m || return 1
 
-if vks-src get pv "$SRC_VKS_PV" >/dev/null 2>&1; then
-  vks-src delete pv "$SRC_VKS_PV" --wait=true
-fi
+  vks-src delete pv "$SRC_VKS_PV" \
+    --ignore-not-found --wait=true --timeout=5m || return 1
+}
+remove_source_vks_volume
 ```
 
 The Supervisor PVC/PV/FCD chain must remain because the snapshot still references the volume.
@@ -266,20 +300,24 @@ The Supervisor PVC/PV/FCD chain must remain because the snapshot still reference
 Verify it:
 
 ```bash
-sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC"
-sup-src get pv "$SUP_PV"
+verify_preserved_volume() {
+  unset DEST_VOLUME_HANDLE
+  sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" || return 1
+  sup-src get pv "$SUP_PV" || return 1
 
-CURRENT_FCD_UUID=$(
-  sup-src get pv "$SUP_PV" \
-    -o jsonpath='{.spec.csi.volumeHandle}'
-)
+  CURRENT_FCD_UUID=$(
+    sup-src get pv "$SUP_PV" \
+      -o jsonpath='{.spec.csi.volumeHandle}'
+  ) || return 1
 
-test "$CURRENT_FCD_UUID" = "$FCD_UUID" || {
-  echo "ERROR: FCD identity changed" >&2
-  exit 1
+  test -n "$FCD_UUID" && test "$CURRENT_FCD_UUID" = "$FCD_UUID" || {
+    echo "ERROR: FCD identity changed" >&2
+    return 1
+  }
+
+  export DEST_VOLUME_HANDLE="$SUP_PVC"
 }
-
-export DEST_VOLUME_HANDLE="$SUP_PVC"
+verify_preserved_volume
 ```
 
 Continue to the destination VKS reconstruction below.
@@ -356,6 +394,8 @@ If the application is managed by Helm, GitOps or another package manager, recons
 
 ## 10. Mount the migrated volume and verify the data
 
+The sample reader runs as UID/GID 1000; adjust these values if the existing data requires a different identity. It mounts the volume read-only and omits `fsGroup` to avoid requesting ownership changes to migrated data.
+
 ```bash
 vks-dst -n "$DST_VKS_NS" apply -f - <<EOF_READER
 apiVersion: v1
@@ -364,14 +404,25 @@ metadata:
   name: migration-test-reader
 spec:
   restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
   containers:
     - name: reader
       image: busybox:1.36
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
       command: ["sh", "-c"]
       args: ["cat /data/migration-test.txt && sleep 3600"]
       volumeMounts:
         - name: data
           mountPath: /data
+          readOnly: true
   volumes:
     - name: data
       persistentVolumeClaim:
@@ -394,13 +445,13 @@ The output should match the content written on the source cluster.
 Delete the test reader after validation:
 
 ```bash
-vks-dst -n "$DST_VKS_NS" delete pod migration-test-reader
+vks-dst -n "$DST_VKS_NS" delete pod migration-test-reader --timeout=5m
 ```
 
 Retain the snapshot until the migrated workload has been validated and rollback is no longer required:
 
 ```bash
-sup-src -n "$SRC_SUP_NS" delete volumesnapshot "$SUP_SNAPSHOT"
+sup-src -n "$SRC_SUP_NS" delete volumesnapshot "$SUP_SNAPSHOT" --timeout=5m
 ```
 
 

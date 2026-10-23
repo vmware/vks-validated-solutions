@@ -5,6 +5,8 @@
 
 The examples assume a filesystem volume with `ReadWriteOnce` access. Adjust `volumeMode`, access modes and `fsType` for the source workload where required.
 
+Run one numbered step at a time in an interactive Bash or zsh shell. Guarded steps use named functions so a failed check stops that function without explicitly exiting your shell. Do not continue to later steps after an error. See the [execution guidance](README.md#running-the-commands), including the caveat for shells that already enable `set -e`.
+
 This example preserves the source disk, attaches it to a helper VM, migrates the VM and disk to a destination vCenter, detaches the disk without deleting it, registers the FCD with the destination Supervisor, and adopts the resulting Supervisor PVC into a destination VKS cluster.
 
 > [!IMPORTANT]
@@ -34,6 +36,7 @@ export REGISTER_NAME=vc-fcd-migration
 export DST_SUP_PVC=migrated-cross-supervisor-pvc
 export DST_VKS_PV=migrated-cross-vcenter-pv
 export DST_VKS_PVC=migrated-cross-vcenter-pvc
+export SUP_SNAPSHOT_CLASS=volumesnapshotclass-delete
 
 export BACKUP_NAME="vks-cross-vcenter-${SRC_VKS_NS}"
 export RESTORE_NAME="vks-cross-vcenter-${DST_VKS_NS}"
@@ -44,36 +47,48 @@ export RESTORE_NAME="vks-cross-vcenter-${DST_VKS_NS}"
 Discover and record the complete source storage chain:
 
 ```bash
-export SRC_VKS_PV=$(
-  vks-src -n "$SRC_VKS_NS" get pvc "$SRC_VKS_PVC" \
-    -o jsonpath='{.spec.volumeName}'
-)
+discover_source_volume() {
+  SRC_VKS_PV=$(
+    vks-src -n "$SRC_VKS_NS" get pvc "$SRC_VKS_PVC" \
+      -o jsonpath='{.spec.volumeName}'
+  ) || return 1
+  test -n "$SRC_VKS_PV" || { echo "ERROR: source PVC has no bound PV" >&2; return 1; }
 
-export VKS_PVC_SIZE=$(
-  vks-src get pv "$SRC_VKS_PV" \
-    -o jsonpath='{.spec.capacity.storage}'
-)
+  VKS_PVC_SIZE=$(
+    vks-src get pv "$SRC_VKS_PV" \
+      -o jsonpath='{.spec.capacity.storage}'
+  ) || return 1
 
-export SUP_PVC=$(
-  vks-src get pv "$SRC_VKS_PV" \
-    -o jsonpath='{.spec.csi.volumeHandle}'
-)
+  SUP_PVC=$(
+    vks-src get pv "$SRC_VKS_PV" \
+      -o jsonpath='{.spec.csi.volumeHandle}'
+  ) || return 1
+  test -n "$SUP_PVC" || { echo "ERROR: source PV has no Supervisor PVC handle" >&2; return 1; }
 
-export SUP_PV=$(
-  sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
-    -o jsonpath='{.spec.volumeName}'
-)
+  SUP_PV=$(
+    sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
+      -o jsonpath='{.spec.volumeName}'
+  ) || return 1
+  test -n "$SUP_PV" || { echo "ERROR: Supervisor PVC has no bound PV" >&2; return 1; }
 
-export SRC_FCD_UUID=$(
-  sup-src get pv "$SUP_PV" \
-    -o jsonpath='{.spec.csi.volumeHandle}'
-)
+  SRC_FCD_UUID=$(
+    sup-src get pv "$SUP_PV" \
+      -o jsonpath='{.spec.csi.volumeHandle}'
+  ) || return 1
+  test -n "$SRC_FCD_UUID" && test -n "$VKS_PVC_SIZE" || {
+    echo "ERROR: source FCD UUID or volume size is empty" >&2
+    return 1
+  }
 
-printf '%-18s %s\n' \
-  'VKS PV:' "$SRC_VKS_PV" \
-  'Supervisor PVC:' "$SRC_SUP_NS/$SUP_PVC" \
-  'Supervisor PV:' "$SUP_PV" \
-  'Source FCD UUID:' "$SRC_FCD_UUID"
+  export SRC_VKS_PV VKS_PVC_SIZE SUP_PVC SUP_PV SRC_FCD_UUID
+
+  printf '%-18s %s\n' \
+    'VKS PV:' "$SRC_VKS_PV" \
+    'Supervisor PVC:' "$SRC_SUP_NS/$SUP_PVC" \
+    'Supervisor PV:' "$SUP_PV" \
+    'Source FCD UUID:' "$SRC_FCD_UUID"
+}
+discover_source_volume
 ```
 
 ## 3. Quiesce the source workload
@@ -83,9 +98,16 @@ Scale the application to zero or otherwise stop all writes. Confirm that no pod 
 Check for remaining VKS `VolumeAttachment` objects:
 
 ```bash
-vks-src get volumeattachments \
-  -o custom-columns=NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName \
-  | grep -F "$SRC_VKS_PV" || true
+check_source_detached() {
+  local attachments
+  attachments=$(vks-src get volumeattachments \
+    -o custom-columns=NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName) || return 1
+  if printf '%s\n' "$attachments" | grep -F "$SRC_VKS_PV"; then
+    echo "ERROR: the source volume still has a VolumeAttachment" >&2
+    return 1
+  fi
+}
+check_source_detached
 ```
 
 Do not continue while the volume remains attached to a source workload.
@@ -134,14 +156,17 @@ sup-src -n "$SRC_SUP_NS" wait \
 ## 6. Delete the source VKS PVC and PV
 
 ```bash
-vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" --wait=true
+remove_source_vks_volume() {
+  vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" \
+    --wait=true --timeout=5m || return 1
 
-if vks-src get pv "$SRC_VKS_PV" >/dev/null 2>&1; then
-  vks-src delete pv "$SRC_VKS_PV" --wait=true
-fi
+  vks-src delete pv "$SRC_VKS_PV" \
+    --ignore-not-found --wait=true --timeout=5m || return 1
 
-sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC"
-sup-src get pv "$SUP_PV"
+  sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" || return 1
+  sup-src get pv "$SUP_PV" || return 1
+}
+remove_source_vks_volume
 ```
 
 ## 7. Create a powered-off helper VM and attach the FCD
@@ -153,24 +178,28 @@ export GOVC_DATASTORE='source-datastore'
 export GOVC_RESOURCE_POOL='source-cluster/Resources'
 export HELPER_VM="${SRC_FCD_UUID}-migrator"
 
-export FCD_PATH=$(
-  govc disk.ls -json "$SRC_FCD_UUID" |
-    jq -er '.objects[0].config.backing.filePath'
-)
+create_helper_vm() {
+  local fcd_info
+  fcd_info=$(govc disk.ls -json "$SRC_FCD_UUID") || return 1
+  FCD_PATH=$(printf '%s\n' "$fcd_info" |
+    jq -er '.objects[0].config.backing.filePath | select(type == "string" and length > 0)') || return 1
+  export FCD_PATH
 
-printf 'FCD backing path: %s\n' "$FCD_PATH"
+  printf 'FCD backing path: %s\n' "$FCD_PATH"
 
-govc vm.create \
-  -on=false \
-  -net=none \
-  "$HELPER_VM"
+  govc vm.create \
+    -on=false \
+    -net=none \
+    "$HELPER_VM" || return 1
 
-govc vm.disk.attach \
-  -vm "$HELPER_VM" \
-  -disk "$FCD_PATH" \
-  -link=false
+  govc vm.disk.attach \
+    -vm "$HELPER_VM" \
+    -disk "$FCD_PATH" \
+    -link=false || return 1
 
-govc device.info -vm "$HELPER_VM"
+  govc device.info -vm "$HELPER_VM" || return 1
+}
+create_helper_vm
 ```
 
 The helper VM must remain powered off. Do not allow a guest OS to mount or modify the disk.
@@ -281,31 +310,39 @@ sup-dst -n "$DST_SUP_NS" get \
 ## 12. Discover the destination Supervisor PV and volume size
 
 ```bash
-export DST_SUP_PV=$(
-  sup-dst -n "$DST_SUP_NS" get pvc "$DST_SUP_PVC" \
-    -o jsonpath='{.spec.volumeName}'
-)
+verify_destination_volume() {
+  DST_SUP_PV=$(
+    sup-dst -n "$DST_SUP_NS" get pvc "$DST_SUP_PVC" \
+      -o jsonpath='{.spec.volumeName}'
+  ) || return 1
+  test -n "$DST_SUP_PV" || { echo "ERROR: destination PVC has no bound PV" >&2; return 1; }
 
-export DST_SIZE=$(
-  sup-dst get pv "$DST_SUP_PV" \
-    -o jsonpath='{.spec.capacity.storage}'
-)
+  DST_SIZE=$(
+    sup-dst get pv "$DST_SUP_PV" \
+      -o jsonpath='{.spec.capacity.storage}'
+  ) || return 1
 
-export REGISTERED_FCD_UUID=$(
-  sup-dst get pv "$DST_SUP_PV" \
-    -o jsonpath='{.spec.csi.volumeHandle}'
-)
+  REGISTERED_FCD_UUID=$(
+    sup-dst get pv "$DST_SUP_PV" \
+      -o jsonpath='{.spec.csi.volumeHandle}'
+  ) || return 1
 
-printf '%-24s %s\n' \
-  'Destination Supervisor PVC:' "$DST_SUP_NS/$DST_SUP_PVC" \
-  'Destination Supervisor PV:' "$DST_SUP_PV" \
-  'Registered FCD UUID:' "$REGISTERED_FCD_UUID" \
-  'Registered size:' "$DST_SIZE"
+  test -n "$DEST_FCD_UUID" && test "$REGISTERED_FCD_UUID" = "$DEST_FCD_UUID" && test -n "$DST_SIZE" || {
+    echo "ERROR: destination FCD identity differs or volume size is empty" >&2
+    return 1
+  }
+  export DST_SUP_PV DST_SIZE REGISTERED_FCD_UUID
 
-test "$REGISTERED_FCD_UUID" = "$DEST_FCD_UUID"
+  printf '%-24s %s\n' \
+    'Destination Supervisor PVC:' "$DST_SUP_NS/$DST_SUP_PVC" \
+    'Destination Supervisor PV:' "$DST_SUP_PV" \
+    'Registered FCD UUID:' "$REGISTERED_FCD_UUID" \
+    'Registered size:' "$DST_SIZE"
+}
+verify_destination_volume
 ```
 
-The final command must exit successfully.
+Continue only when the function completes successfully.
 
 ## 13. Adopt the destination Supervisor PVC in VKS
 
@@ -377,6 +414,8 @@ For Helm- or GitOps-managed applications, reconstructing the application from it
 
 ## 15. Mount the volume and validate the migrated data
 
+The sample reader runs as UID/GID 1000; adjust these values if the existing data requires a different identity. It mounts the volume read-only and omits `fsGroup` to avoid requesting ownership changes to migrated data.
+
 ```bash
 vks-dst -n "$DST_VKS_NS" apply -f - <<EOF_READER
 apiVersion: v1
@@ -385,14 +424,25 @@ metadata:
   name: cross-vcenter-migration-reader
 spec:
   restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
   containers:
     - name: reader
       image: busybox:1.36
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
       command: ["sh", "-c"]
       args: ["cat /data/migration-test.txt && sleep 3600"]
       volumeMounts:
         - name: data
           mountPath: /data
+          readOnly: true
   volumes:
     - name: data
       persistentVolumeClaim:
@@ -433,11 +483,14 @@ Complete source cleanup only after destination validation and migration acceptan
 The source Supervisor may retain stale Kubernetes objects after the FCD has moved. First try normal deletion:
 
 ```bash
-sup-src -n "$SRC_SUP_NS" delete volumesnapshot "$SUP_SNAPSHOT" \
-  --wait=true
+cleanup_source_objects() {
+  sup-src -n "$SRC_SUP_NS" delete volumesnapshot "$SUP_SNAPSHOT" \
+    --ignore-not-found --wait=true --timeout=5m || return 1
 
-sup-src -n "$SRC_SUP_NS" delete pvc "$SUP_PVC" \
-  --wait=true
+  sup-src -n "$SRC_SUP_NS" delete pvc "$SUP_PVC" \
+    --ignore-not-found --wait=true --timeout=5m || return 1
+}
+cleanup_source_objects
 ```
 
 If the VolumeSnapshot cannot be deleted because the underlying FCD is no longer present in the source vCenter, inspect its finalizers:
@@ -450,12 +503,14 @@ sup-src -n "$SRC_SUP_NS" get volumesnapshot "$SUP_SNAPSHOT" \
 As a last-resort cleanup step, remove the finalizers and delete the object:
 
 ```bash
-sup-src -n "$SRC_SUP_NS" patch volumesnapshot "$SUP_SNAPSHOT" \
-  --type=json \
-  -p='[{"op":"remove","path":"/metadata/finalizers"}]'
+cleanup_stale_source_objects() {
+  sup-src -n "$SRC_SUP_NS" patch volumesnapshot "$SUP_SNAPSHOT" \
+    --type=json \
+    -p='[{"op":"remove","path":"/metadata/finalizers"}]' || return 1
 
-sup-src -n "$SRC_SUP_NS" delete volumesnapshot "$SUP_SNAPSHOT"
-sup-src -n "$SRC_SUP_NS" delete pvc "$SUP_PVC"
+  cleanup_source_objects
+}
+cleanup_stale_source_objects
 ```
 
 > [!WARNING]

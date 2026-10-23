@@ -14,3 +14,16 @@ Choose the example by the **Supervisor namespaces hosting the source and destina
 Examples 1 and 2 retain the FCD on its existing datastore; destination hosts must be able to access it and the disk's storage policy must be assigned to the destination Supervisor namespace. Example 3 can relocate the disk using Storage vMotion. See the [overview](../README.md#overview) for access and datastore requirements and the [architecture](../README.md#architecture) for the storage identities.
 
 Velero is used for application manifests and metadata. The persistent storage relationship is reconstructed separately in each example.
+
+## Running the commands
+
+Use an interactive Bash or zsh session and run the numbered steps individually. Keep the aliases, variables and functions defined by earlier steps in that session. Stop after any error; later steps depend on the checks succeeding. Guarded code blocks use function-local `return` to stop the step without explicitly exiting your shell. They do not enable `set -e`; if your session already enables it, a failing command can still terminate the shell.
+
+Run companion scripts in a separate Bash process, after setting the required variables and completing their prerequisites:
+
+| Script | Scope | Invocation |
+|---|---|---|
+| [same-vcenter-example.sh](../scripts/same-vcenter-example.sh) | Scenario 1: snapshot protection and adoption within the same Supervisor namespace | `bash scripts/same-vcenter-example.sh` |
+| [cross-vcenter-example.sh](../scripts/cross-vcenter-example.sh) | Scenario 3: destination registration and adoption after the disk has been migrated and safely detached | `bash scripts/cross-vcenter-example.sh` |
+
+These paths assume the working directory is `VKS-to-VKS`. The scripts refuse to run when sourced, before changing shell options or issuing migration commands. Scenario 2's helper-VM handover is covered by its worked example, not by `same-vcenter-example.sh`.

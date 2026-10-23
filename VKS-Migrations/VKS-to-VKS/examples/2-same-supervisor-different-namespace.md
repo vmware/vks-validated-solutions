@@ -36,6 +36,8 @@ The workstation running these commands requires:
 
 If an earlier attempt changed the source Supervisor PV to `Retain`, inspect the current storage chain before proceeding. This example relies on normal CSI deletion to remove the old PV; a retained PV requires a separate recovery plan. Do not switch it back to `Delete` or delete source storage objects while the FCD is unprotected.
 
+Run the numbered steps individually, in order, in an interactive Bash or zsh session. Stop on any failed command and resolve it before continuing. Guarded steps use functions with `return` to stop that step without an `exit` command closing your shell. Keep the functions and recorded variables available for subsequent steps; do not paste the entire procedure as one script. See the [execution guidance](README.md#running-the-commands), including the caveat for shells that already enable `set -e`.
+
 ## 1. Configure kubeconfigs and variables
 
 ```bash
@@ -64,6 +66,25 @@ export REGISTER_NAME=same-vcenter-fcd-migration
 
 export BACKUP_NAME="vks-migration-${SRC_VKS_NS}"
 export RESTORE_NAME="vks-migration-${DST_VKS_NS}"
+```
+
+Define a bounded deletion check. It requires `get`, rather than `watch`, permission and treats only a successful empty response as absence:
+
+```bash
+wait_for_absence() {
+  local kubeconfig="$1" observed deadline=$((SECONDS + 300))
+  shift
+  while (( SECONDS < deadline )); do
+    observed=$(kubectl --kubeconfig="$kubeconfig" get "$@" \
+      --ignore-not-found -o json --request-timeout=15s) || return 1
+    if [ -z "$observed" ]; then
+      return 0
+    fi
+    sleep 5
+  done
+  printf 'ERROR: timed out waiting for deletion: %s\n' "$*" >&2
+  return 1
+}
 ```
 
 Confirm that each context points to the expected cluster before continuing:
@@ -105,9 +126,20 @@ metadata:
   name: migration-test-writer
 spec:
   restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
   containers:
     - name: writer
       image: busybox:1.36
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
       command: ["sh", "-c"]
       args:
         - |
@@ -136,42 +168,50 @@ vks-src -n "$SRC_VKS_NS" exec migration-test-writer -- \
 ## 3. Discover and record the storage chain
 
 ```bash
-export SRC_VKS_PV=$(
+discover_storage_chain() {
+  local value
+  SRC_VKS_PV=$(
   vks-src -n "$SRC_VKS_NS" get pvc "$SRC_VKS_PVC" \
     -o jsonpath='{.spec.volumeName}'
-)
+  ) || return 1
+  test -n "$SRC_VKS_PV" || { echo 'ERROR: source PVC is not bound' >&2; return 1; }
 
-export VKS_PVC_SIZE=$(
+  VKS_PVC_SIZE=$(
   vks-src get pv "$SRC_VKS_PV" \
     -o jsonpath='{.spec.capacity.storage}'
-)
+  ) || return 1
 
-export SUP_PVC=$(
+  SUP_PVC=$(
   vks-src get pv "$SRC_VKS_PV" \
     -o jsonpath='{.spec.csi.volumeHandle}'
-)
+  ) || return 1
+  test -n "$SUP_PVC" || { echo 'ERROR: source PV has no CSI handle' >&2; return 1; }
 
-export SUP_PV=$(
+  SUP_PV=$(
   sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
     -o jsonpath='{.spec.volumeName}'
-)
+  ) || return 1
+  test -n "$SUP_PV" || { echo 'ERROR: source Supervisor PVC is not bound' >&2; return 1; }
 
-export FCD_UUID=$(
+  FCD_UUID=$(
   sup-src get pv "$SUP_PV" \
     -o jsonpath='{.spec.csi.volumeHandle}'
-)
+  ) || return 1
 
-export SUP_STORAGE_CLASS=$(
+  SUP_STORAGE_CLASS=$(
   sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
     -o jsonpath='{.spec.storageClassName}'
-)
+  ) || return 1
 
-export SUP_ACCESS_MODE=$(
+  SUP_ACCESS_MODE=$(
   sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
     -o jsonpath='{.spec.accessModes[0]}'
-)
+  ) || return 1
 
-printf '%-22s %s\n' \
+  for value in "$VKS_PVC_SIZE" "$FCD_UUID" "$SUP_STORAGE_CLASS" "$SUP_ACCESS_MODE"; do
+    test -n "$value" || { echo 'ERROR: incomplete source storage chain' >&2; return 1; }
+  done
+  printf '%-22s %s\n' \
   'VKS PVC:' "$SRC_VKS_NS/$SRC_VKS_PVC" \
   'VKS PV:' "$SRC_VKS_PV" \
   'PVC size:' "$VKS_PVC_SIZE" \
@@ -179,6 +219,8 @@ printf '%-22s %s\n' \
   'Supervisor PV:' "$SUP_PV" \
   'Supervisor policy:' "$SUP_STORAGE_CLASS" \
   'FCD UUID:' "$FCD_UUID"
+}
+discover_storage_chain
 ```
 
 Save these values before continuing.
@@ -202,17 +244,29 @@ Stop all pods that write to the PVC. The example pod is deleted here:
 
 ```bash
 vks-src -n "$SRC_VKS_NS" delete pod migration-test-writer \
-  --wait=true
+  --wait=true --timeout=5m
 ```
 
 For a Deployment or StatefulSet, scale it to zero instead.
 
-Check for remaining VKS `VolumeAttachment` objects:
+Wait for the VKS attachment to disappear before attaching the disk to the helper VM:
 
 ```bash
-vks-src get volumeattachments \
-  -o custom-columns=NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName \
-  | grep -F "$SRC_VKS_PV" || true
+wait_for_source_detach() {
+  local attachments remaining deadline=$((SECONDS + 300))
+  while (( SECONDS < deadline )); do
+    attachments=$(vks-src get volumeattachments -o json --request-timeout=15s) || return 1
+    remaining=$(printf '%s\n' "$attachments" | jq -er --arg pv "$SRC_VKS_PV" \
+      '[.items[] | select(.spec.source.persistentVolumeName == $pv)] | length') || return 1
+    if [ "$remaining" = 0 ]; then
+      return 0
+    fi
+    sleep 5
+  done
+  echo 'ERROR: source volume is still attached; do not attach the helper disk' >&2
+  return 1
+}
+wait_for_source_detach
 ```
 
 Do not continue while the source volume remains attached to a running workload.
@@ -295,7 +349,7 @@ Supervisor PV (removed)
 `govc volume.rm -keep` requires govc 0.49.0 or later:
 
 ```bash
-# dowload the latest govc release, if needed:
+# Download the latest govc release, if needed:
 curl -sL https://github.com/vmware/govmomi/releases/latest/download/govc_$(uname -s)_$(uname -m).tar.gz | sudo tar -xz -C /usr/local/bin govc
 
 govc version
@@ -307,14 +361,16 @@ Configure the normal `GOVC_URL`, `GOVC_USERNAME`, `GOVC_PASSWORD`, `GOVC_DATASTO
 Record the CNS volume and its backing object before changing anything:
 
 ```bash
-export FCD_BACKING_ID=$(govc volume.ls -L "$FCD_UUID")
-
-printf '%-20s %s\n' \
-  'CNS volume ID:' "$FCD_UUID" \
-  'FCD backing ID:' "$FCD_BACKING_ID"
-
-govc volume.ls -l "$FCD_UUID"
-govc disk.ls -l "$FCD_BACKING_ID"
+record_backing_disk() {
+  FCD_BACKING_ID=$(govc volume.ls -L "$FCD_UUID") || return 1
+  test -n "$FCD_BACKING_ID" || { echo 'ERROR: CNS backing ID is empty' >&2; return 1; }
+  printf '%-20s %s\n' \
+    'CNS volume ID:' "$FCD_UUID" \
+    'FCD backing ID:' "$FCD_BACKING_ID"
+  govc volume.ls -l "$FCD_UUID" || return 1
+  govc disk.ls -l "$FCD_BACKING_ID" || return 1
+}
+record_backing_disk
 ```
 
 Do not continue unless both objects resolve as expected.
@@ -326,59 +382,72 @@ The helper VM is a safety interlock only. It must remain powered off and no gues
 Discover the backing path:
 
 ```bash
-export FCD_PATH=$(
-  govc disk.ls -json "$FCD_BACKING_ID" |
-    jq -er '.objects[0].config.backing.filePath'
-)
-
-export HELPER_VM="${FCD_UUID}-migration-guard"
-
-printf 'FCD backing path: %s\n' "$FCD_PATH"
+record_backing_path() {
+  local disk_json
+  disk_json=$(govc disk.ls -json "$FCD_BACKING_ID") || return 1
+  FCD_PATH=$(printf '%s\n' "$disk_json" | jq -er \
+    '.objects | select(length == 1) | .[0].config.backing.filePath | select(length > 0)') || return 1
+  HELPER_VM="${FCD_UUID}-migration-guard"
+  printf 'FCD backing path: %s\n' "$FCD_PATH"
+}
+record_backing_path
 ```
 
 Create the helper VM in inventory accessible to the datastore containing the FCD and attach the existing disk without creating a linked delta:
 
 ```bash
-govc vm.create \
-  -on=false \
-  -net=none \
-  "$HELPER_VM"
-
-govc vm.disk.attach \
-  -vm "$HELPER_VM" \
-  -disk "$FCD_PATH" \
-  -link=false
-
-govc device.info -vm "$HELPER_VM" disk-*
+create_helper() {
+  test -n "$FCD_PATH" && test -n "$HELPER_VM" || return 1
+  govc vm.create -on=false -net=none "$HELPER_VM" || return 1
+  govc vm.disk.attach -vm "$HELPER_VM" -disk "$FCD_PATH" -link=false || return 1
+  govc device.info -vm "$HELPER_VM" 'disk-*' || return 1
+}
+create_helper
 ```
 
-Verify that the helper VM is powered off:
+If creation or attachment fails, inspect the helper before retrying; do not delete source storage. Verify that exactly one helper VM is selected, it is powered off, and its only disk is the recorded FCD. This function is reused before teardown and detachment:
 
 ```bash
-test "$(govc vm.info -json "$HELPER_VM" | jq -r '.VirtualMachines[0].Runtime.PowerState')" = "poweredOff"
+verify_helper_guard() {
+  local vm_json devices_json
+  vm_json=$(govc vm.info -json "$HELPER_VM") || return 1
+  printf '%s\n' "$vm_json" | jq -e --arg name "$HELPER_VM" '
+    .virtualMachines | length == 1 and
+    (.[0].name == $name and .[0].runtime.powerState == "poweredOff")
+  ' >/dev/null || { echo 'ERROR: helper VM is not uniquely identified and powered off' >&2; return 1; }
+  devices_json=$(govc device.info -json -vm "$HELPER_VM" 'disk-*') || return 1
+  printf '%s\n' "$devices_json" | jq -e --arg path "$FCD_PATH" --arg id "$FCD_BACKING_ID" '
+    .devices | length == 1 and
+    (.[0].backing.fileName == $path and .[0].vDiskId.id == $id)
+  ' >/dev/null || { echo 'ERROR: helper does not hold exactly the recorded FCD' >&2; return 1; }
+}
+verify_helper_guard
 ```
+
+These JSON selectors match govc 0.56.0. Inspect your version's JSON if a field differs; do not bypass a failed guard. Quote `'disk-*'` to prevent zsh from expanding it as a local filename pattern.
 
 ## 8. Delete the source VKS PVC and PV
 
 The source workload must already be quiesced and the Velero backup completed.
 
-Delete the source VKS PVC and PV:
+Recheck the helper and source Supervisor PV before deleting the source storage objects. PV deletion is requested asynchronously because its finalizer may remain until the unregister step:
 
 ```bash
-vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" \
-  --wait=true
-
-if vks-src get pv "$SRC_VKS_PV" >/dev/null 2>&1; then
-  vks-src delete pv "$SRC_VKS_PV" --wait=true
-fi
-```
-
-The Supervisor PVC may disappear automatically. If it remains, remove it using the normal namespaced Supervisor context:
-
-```bash
-if sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" >/dev/null 2>&1; then
-  sup-src -n "$SRC_SUP_NS" delete pvc "$SUP_PVC" --wait=true
-fi
+teardown_source_storage() {
+  local pv_json
+  verify_helper_guard || return 1
+  pv_json=$(sup-src get pv "$SUP_PV" -o json) || return 1
+  printf '%s\n' "$pv_json" | jq -e --arg id "$FCD_UUID" '
+    .spec.persistentVolumeReclaimPolicy == "Delete" and .spec.csi.volumeHandle == $id
+  ' >/dev/null || { echo 'ERROR: unexpected source Supervisor PV identity or reclaim policy' >&2; return 1; }
+  vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" \
+    --ignore-not-found --wait=true --timeout=5m || return 1
+  vks-src delete pv "$SRC_VKS_PV" --ignore-not-found --wait=false || return 1
+  # Normal reconciliation may already have removed the Supervisor PVC.
+  sup-src -n "$SRC_SUP_NS" delete pvc "$SUP_PVC" --ignore-not-found --wait=false || return 1
+  wait_for_absence "$SUPERVISOR_KUBECONFIG" pvc "$SUP_PVC" -n "$SRC_SUP_NS" || return 1
+}
+teardown_source_storage
 ```
 
 Because the Supervisor PV still has reclaim policy `Delete`, the vSphere CSI provisioner will try to delete the CNS volume. The helper-VM attachment must prevent the backing FCD from being destroyed.
@@ -386,12 +455,19 @@ Because the Supervisor PV still has reclaim policy `Delete`, the vSphere CSI pro
 Verify that the Supervisor PV remains in `Released` state and still references the expected volume ID:
 
 ```bash
-sup-src get pv "$SUP_PV" \
-  -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,RECLAIM:.spec.persistentVolumeReclaimPolicy,HANDLE:.spec.csi.volumeHandle
-
-test "$(sup-src get pv "$SUP_PV" -o jsonpath='{.status.phase}')" = "Released"
-test "$(sup-src get pv "$SUP_PV" -o jsonpath='{.spec.csi.volumeHandle}')" = "$FCD_UUID"
+verify_source_released() {
+  local pv_json
+  pv_json=$(sup-src get pv "$SUP_PV" -o json) || return 1
+  printf '%s\n' "$pv_json" | jq -e --arg id "$FCD_UUID" '
+    .status.phase == "Released" and .spec.persistentVolumeReclaimPolicy == "Delete"
+    and .spec.csi.volumeHandle == $id
+  ' >/dev/null || { echo 'ERROR: source Supervisor PV has not reached the expected guarded state' >&2; return 1; }
+  govc disk.ls -l "$FCD_BACKING_ID" || return 1
+}
+verify_source_released
 ```
+
+Allow reconciliation to settle and repeat this check if the PV has not yet become `Released`.
 
 Inspect the PV events:
 
@@ -410,29 +486,32 @@ Do not continue if the backing disk has disappeared or if the source PV is not i
 
 ## 9. Remove the CNS registration but keep the FCD
 
-This is the handover operation:
+This is the handover operation. Check the query contents to verify removal: `govc volume.ls` can succeed with empty output when the registration is absent; the tested JSON response was `{"volume":null}`. A failed query is an error, not proof of absence.
 
 ```bash
-govc volume.rm -keep "$FCD_UUID"
+verify_cns_absent() {
+  local cns_json
+  cns_json=$(govc volume.ls -json "$FCD_UUID") || return 1
+  printf '%s\n' "$cns_json" | jq -e 'has("volume") and ((.volume // []) | length == 0)' >/dev/null || {
+    echo 'ERROR: CNS volume is still registered or the response schema is unexpected' >&2
+    return 1
+  }
+}
+
+unregister_keep_disk() {
+  verify_helper_guard || return 1
+  verify_source_released || return 1
+  govc volume.rm -keep "$FCD_UUID" || return 1
+  verify_cns_absent || return 1
+  govc disk.ls -l "$FCD_BACKING_ID" || return 1
+  verify_helper_guard || return 1
+}
+unregister_keep_disk
 ```
 
 **`-keep` is essential. It instructs CNS to remove the container-volume registration without deleting the backing disk**.
 
-Verify that the CNS volume registration is gone:
-
-```bash
-if govc volume.ls "$FCD_UUID" >/dev/null 2>&1; then
-  echo "ERROR: CNS volume is still registered" >&2
-  exit 1
-fi
-```
-
-Then verify independently that the backing FCD still exists:
-
-```bash
-govc disk.ls -l "$FCD_BACKING_ID"
-govc device.info -vm "$HELPER_VM" disk-*
-```
+The function independently confirms that the backing FCD still exists and remains attached. If any check fails, keep the helper disk attached and investigate before proceeding.
 
 At this point the desired state is:
 
@@ -446,22 +525,14 @@ helper VM:             powered off, FCD still attached
 
 Once CNS no longer contains the old container-volume registration, the source CSI deletion can finish reconciling the stale Supervisor PV without destroying the retained FCD.
 
-Wait for the old Supervisor PV to be removed:
+Wait for the old Supervisor PV and source VKS PV to be removed. Bounded GET polling avoids requiring Supervisor PV `watch` permission, which is not always granted alongside `get`:
 
 ```bash
-sup-src wait \
-  --for=delete \
-  "pv/${SUP_PV}" \
-  --timeout=5m
-```
-
-Confirm that the old PV no longer blocks registration of the same volume ID:
-
-```bash
-if sup-src get pv "$SUP_PV" >/dev/null 2>&1; then
-  echo "ERROR: old Supervisor PV still exists" >&2
-  exit 1
-fi
+wait_for_old_pvs() {
+  wait_for_absence "$SUPERVISOR_KUBECONFIG" pv "$SUP_PV" || return 1
+  wait_for_absence "$SRC_VKS_KUBECONFIG" pv "$SRC_VKS_PV" || return 1
+}
+wait_for_old_pvs
 ```
 
 This is the critical difference from the old `Retain` workflow: there is no retained Supervisor PV and therefore no cluster-scoped `claimRef` to edit.
@@ -470,24 +541,29 @@ This is the critical difference from the old `Retain` workflow: there is no reta
 
 Only detach the helper disk **after** the old CNS registration and old Supervisor PV are gone.
 
-Identify the helper VM disk device and remove it while keeping the backing files:
+Identify the disk by its recorded backing path and FCD backing ID, rather than selecting the first VM disk. Recheck the handover conditions before removing the device while keeping its backing files:
 
 ```bash
-govc device.info -vm "$HELPER_VM" disk-*
-
-export HELPER_DISK_DEVICE=$(
-  govc device.ls -vm "$HELPER_VM" | awk '/^disk-/ {print $1; exit}'
-)
-
-test -n "$HELPER_DISK_DEVICE" || {
-  echo "ERROR: helper VM disk device not found" >&2
-  exit 1
+detach_helper_disk() {
+  local devices_json
+  verify_cns_absent || return 1
+  wait_for_old_pvs || return 1
+  verify_helper_guard || return 1
+  devices_json=$(govc device.info -json -vm "$HELPER_VM" 'disk-*') || return 1
+  HELPER_DISK_DEVICE=$(printf '%s\n' "$devices_json" | jq -er \
+    --arg path "$FCD_PATH" --arg id "$FCD_BACKING_ID" '
+      [.devices[] | select(.backing.fileName == $path and .vDiskId.id == $id)]
+      | select(length == 1) | .[0].name | select(length > 0)
+    ') || return 1
+  govc device.remove -vm "$HELPER_VM" -keep "$HELPER_DISK_DEVICE" || return 1
+  devices_json=$(govc device.info -json -vm "$HELPER_VM" 'disk-*') || return 1
+  printf '%s\n' "$devices_json" | jq -e 'has("devices") and ((.devices // []) | length == 0)' >/dev/null || {
+    echo 'ERROR: helper still has a disk after detachment' >&2
+    return 1
+  }
+  govc disk.ls -l "$FCD_BACKING_ID" || return 1
 }
-
-govc device.remove \
-  -vm "$HELPER_VM" \
-  -keep \
-  "$HELPER_DISK_DEVICE"
+detach_helper_disk
 ```
 
 Verify that the retained FCD still exists:
@@ -524,59 +600,43 @@ sup-dst -n "$DST_SUP_NS" wait \
   --timeout=10m
 ```
 
-Inspect the result and fail if the controller reports an error:
+Inspect the result. Object creation alone does not confirm successful registration:
 
 ```bash
 sup-dst -n "$DST_SUP_NS" get \
   "cnsregistervolume/${REGISTER_NAME}" \
   -o yaml
+```
 
-REGISTER_ERROR=$(
-  sup-dst -n "$DST_SUP_NS" get \
-    "cnsregistervolume/${REGISTER_NAME}" \
-    -o jsonpath='{.status.error}'
-)
+Verify registration, discover the new Supervisor PV, and confirm that the destination PVC is `Bound` to the retained FCD. Set the destination handle only after these checks pass:
 
-test -z "$REGISTER_ERROR" || {
-  echo "ERROR: CnsRegisterVolume failed: $REGISTER_ERROR" >&2
-  exit 1
+```bash
+verify_destination_registration() {
+  local registration_json pvc_json pv_json
+  DEST_VOLUME_HANDLE=
+  registration_json=$(sup-dst -n "$DST_SUP_NS" get \
+    "cnsregistervolume/${REGISTER_NAME}" -o json) || return 1
+  printf '%s\n' "$registration_json" | jq -e '
+    .status.registered == true and ((.status.error // "") == "")
+  ' >/dev/null || {
+    printf 'ERROR: registration incomplete: %s\n' "$registration_json" >&2
+    return 1
+  }
+  pvc_json=$(sup-dst -n "$DST_SUP_NS" get pvc "$DST_SUP_PVC" -o json) || return 1
+  DST_SUP_PV=$(printf '%s\n' "$pvc_json" | jq -er '
+    select(.status.phase == "Bound") | .spec.volumeName | select(length > 0)
+  ') || return 1
+  pv_json=$(sup-dst get pv "$DST_SUP_PV" -o json) || return 1
+  printf '%s\n' "$pv_json" | jq -e --arg id "$FCD_UUID" '
+    .spec.csi.volumeHandle == $id
+  ' >/dev/null || { echo 'ERROR: destination Supervisor PV references a different FCD' >&2; return 1; }
+  DEST_VOLUME_HANDLE="$DST_SUP_PVC"
+  printf 'Destination Supervisor PV: %s\nVKS volume handle: %s\n' "$DST_SUP_PV" "$DEST_VOLUME_HANDLE"
 }
+verify_destination_registration
 ```
 
-Discover the newly created Supervisor PV:
-
-```bash
-export DST_SUP_PV=$(
-  sup-dst -n "$DST_SUP_NS" get pvc "$DST_SUP_PVC" \
-    -o jsonpath='{.spec.volumeName}'
-)
-
-sup-dst -n "$DST_SUP_NS" get pvc "$DST_SUP_PVC" \
-  -o custom-columns=NAME:.metadata.name,PV:.spec.volumeName,PHASE:.status.phase
-
-sup-dst get pv "$DST_SUP_PV" \
-  -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,HANDLE:.spec.csi.volumeHandle
-```
-
-Confirm that the destination Supervisor PVC is `Bound` and that the new Supervisor PV represents the retained FCD:
-
-```bash
-test "$(
-  sup-dst -n "$DST_SUP_NS" get pvc "$DST_SUP_PVC" \
-    -o jsonpath='{.status.phase}'
-)" = "Bound"
-
-test "$(
-  sup-dst get pv "$DST_SUP_PV" \
-    -o jsonpath='{.spec.csi.volumeHandle}'
-)" = "$FCD_UUID"
-```
-
-The VKS volume handle is now the new Supervisor PVC name:
-
-```bash
-export DEST_VOLUME_HANDLE="$DST_SUP_PVC"
-```
+The VKS volume handle is now the new Supervisor PVC name, not the FCD UUID.
 
 ## 13. Create the destination VKS PV and PVC
 
@@ -650,6 +710,8 @@ If the application is managed by Helm, GitOps or another package manager, recons
 
 ## 15. Mount the migrated volume and verify the data
 
+The test pods run as UID/GID 1000 with restricted Pod Security settings. The reader mounts read-only and does not set `fsGroup`; for an existing workload, use an identity that already has permission to read its data.
+
 ```bash
 vks-dst -n "$DST_VKS_NS" apply -f - <<EOF_READER
 apiVersion: v1
@@ -658,18 +720,30 @@ metadata:
   name: migration-test-reader
 spec:
   restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
   containers:
     - name: reader
       image: busybox:1.36
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
       command: ["sh", "-c"]
       args: ["cat /data/migration-test.txt && sleep 3600"]
       volumeMounts:
         - name: data
           mountPath: /data
+          readOnly: true
   volumes:
     - name: data
       persistentVolumeClaim:
         claimName: ${DST_VKS_PVC}
+        readOnly: true
 EOF_READER
 
 vks-dst -n "$DST_VKS_NS" wait \
@@ -688,13 +762,27 @@ The output should match the content written on the source cluster.
 Delete the test reader after validation:
 
 ```bash
-vks-dst -n "$DST_VKS_NS" delete pod migration-test-reader
+vks-dst -n "$DST_VKS_NS" delete pod migration-test-reader --timeout=5m
 ```
 
 There is no migration snapshot or retained source Supervisor PV to remove. After the migrated workload has been validated, remove the powered-off helper VM if it is no longer required:
 
 ```bash
-govc vm.destroy "$HELPER_VM"
+destroy_empty_helper() {
+  local vm_json devices_json
+  vm_json=$(govc vm.info -json "$HELPER_VM") || return 1
+  printf '%s\n' "$vm_json" | jq -e --arg name "$HELPER_VM" '
+    .virtualMachines | length == 1 and
+    (.[0].name == $name and .[0].runtime.powerState == "poweredOff")
+  ' >/dev/null || return 1
+  devices_json=$(govc device.info -json -vm "$HELPER_VM" 'disk-*') || return 1
+  printf '%s\n' "$devices_json" | jq -e 'has("devices") and ((.devices // []) | length == 0)' >/dev/null || {
+    echo 'ERROR: helper still has a disk; do not destroy it' >&2
+    return 1
+  }
+  govc vm.destroy "$HELPER_VM" || return 1
+}
+destroy_empty_helper
 ```
 
 Only destroy the helper VM after its migration-guard disk has been detached with `device.remove -keep` and the destination workload has been validated.

@@ -14,7 +14,7 @@ Choose the scenario by the **Supervisor namespace hosting each VKS cluster**, no
 | [2. Same Supervisor, different Supervisor namespaces](examples/2-same-supervisor-different-namespace.md) | Hand over the existing disk from namespace `a` to namespace `b`; **replace the Supervisor PVC/PV chain**. | Powered-off helper VM + `govc volume.rm -keep` + `CnsRegisterVolume` |
 | [3. Different Supervisors and vCenters](examples/3-across-supervisors-and-vcenters.md) | Move the disk to a destination vCenter and **build a new Supervisor PVC/PV chain** there. | Supervisor `VolumeSnapshot` + helper VM + cross-vCenter Storage vMotion + `CnsRegisterVolume` |
 
-**Access requirements:** The examples require permission to read the relevant cluster-scoped Supervisor PVs and manage the namespaced PVCs, snapshots or `CnsRegisterVolume` objects used by the selected procedure. Scenario 2 does not require patching or directly deleting a Supervisor PV. The helper-VM paths also require sufficient vCenter privileges to manage the VM and disk; Scenario 2 additionally requires the CNS unregister operation. See each example's prerequisites; namespaced access alone does not cover every command.
+**Access requirements:** The examples require permission to read the relevant cluster-scoped Supervisor PVs and manage the namespaced PVCs, snapshots or `CnsRegisterVolume` objects used by the selected procedure. Scenario 2 does not require patching or directly deleting a Supervisor PV; its deletion checks poll with `get` and do not require PV `watch` permission. The helper-VM paths also require sufficient vCenter privileges to manage the VM and disk; Scenario 2 additionally requires the CNS unregister operation. See each example's prerequisites; namespaced access alone does not cover every command.
 
 **Datastore requirements:** Scenarios 1 and 2 keep the FCD on its **existing datastore**. The destination VKS hosts must be able to access that datastore within the supported Supervisor storage topology, and the disk's storage policy must be available to the destination Supervisor namespace and compatible with the datastore. A matching datastore or storage-policy name is not enough. `CnsRegisterVolume` registers the existing disk; it does not relocate or copy it. Scenario 3 can move the disk to a different destination datastore using Storage vMotion and must satisfy the destination storage-policy and accessibility requirements.
 
@@ -94,21 +94,24 @@ The validated zero-copy handover keeps the disk on the same datastore and avoids
 Before handover:
   Source VKS PVC → VKS PV → Supervisor PVC in a → Supervisor PV → FCD
 
-Attach the FCD to a powered-off 'helper' VM:
+Attach the FCD to a powered-off helper VM:
   Source VKS PVC → VKS PV → Supervisor PVC in a → Supervisor PV → FCD::[VM]
 
-Removal of VKS PVC produces:
+Remove the source VKS storage objects and Supervisor PVC:
   Supervisor PV → FCD::[VM]
 
-Supervisor PV is removed/unregistered with 'govc volume.rm -keep':
+Run govc volume.rm -keep; wait for CSI to remove the old Supervisor PV:
   FCD::[VM]
 
-VM is removed and FCD is registered with cnsregistervolume (in the new supervisor namespace), creating new supervisor objects
-  new Supervisor PVC in b → new Supervisor PV →  FCD
-    └─── created by CnsRegisterVolume ────┘ 
+Detach the disk with govc device.remove -keep:
+  FCD
 
-A new VKS PV/PVC pair can then be assigned to the supervisor PVC:
-  New VKS PVC → VKS PV → new Supervisor PVC in b → new Supervisor PV → CD
+Register the FCD with CnsRegisterVolume in namespace b:
+  new Supervisor PVC in b → new Supervisor PV → FCD
+    └─── created by CnsRegisterVolume ────┘
+
+Create the destination VKS PV/PVC using the new Supervisor PVC name:
+  new VKS PVC → new VKS PV → new Supervisor PVC in b → new Supervisor PV → FCD
 ```
 
 High-level flow (the worked example assumes the source Supervisor PV has reclaim policy `Delete`):
@@ -139,6 +142,8 @@ High-level flow (the worked example assumes the source Supervisor PV has reclaim
 
 > [!NOTE]
 > This workflow was validated with the FCD still attached to a powered-off helper VM. Source CSI repeatedly attempted destructive deletion, but vCenter returned `ResourceInUse`; `govc volume.rm -keep` successfully removed the CNS registration while preserving the FCD. Treat this exact interaction as version-dependent. If `volume.rm -keep` itself returns `ResourceInUse`, do not detach the helper VM while destructive CSI deletion is still retrying.
+
+A command check on 23 October 2026 used vCenter 9.0.2 (build 25148086), Supervisor Kubernetes 1.32.9, VKS Kubernetes 1.35.5 and govc 0.56.0. A disposable volume survived teardown, unregister, detach, registration and VKS adoption with matching SHA-256 checksums. That check was a round trip through one VKS cluster and one Supervisor namespace; it did not independently validate cross-namespace migration or Velero backup/restore.
 
 If an attempted handover still shows the source namespace in the Supervisor PV's `claimRef`, check these points before proceeding:
 
@@ -212,7 +217,7 @@ The detailed procedures are split by migration scenario:
 2. [Same Supervisor, different Supervisor namespace](examples/2-same-supervisor-different-namespace.md)
 3. [Across Supervisors and vCenters](examples/3-across-supervisors-and-vcenters.md)
 
-See the [examples index](examples/README.md) for the scenario comparison.
+See the [examples index](examples/README.md) for the scenario comparison and command execution guidance. Run the interactive examples one step at a time; execute the companion scripts with `bash`, rather than sourcing them into your shell.
 
 ## Assumptions and Limitations
 
