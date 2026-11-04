@@ -1,0 +1,68 @@
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: example-cluster01                            # VKS Cluster Name
+  namespace: vault-ns                                # vSphere Namespace
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 10.95.0.0/16
+    serviceDomain: cluster.local
+    services:
+      cidrBlocks:
+        - 10.96.0.0/12
+  topology:
+    classRef:
+      name: builtin-generic-v3.7.0
+      namespace: vmware-system-vks-public
+    controlPlane:
+      metadata:
+        annotations:
+          run.tanzu.vmware.com/resolve-os-image: os-name=photon
+      replicas: 1
+    variables:
+      - name: vmClass
+        value: best-effort-medium
+      - name: storageClass
+        value: vks-primary-sp
+      - name: kubernetes
+        value:
+          certificateRotation:
+            enabled: true
+            renewalDaysBeforeExpiry: 90
+      - name: bootstrapAddons
+        value:
+          cniRef:
+            name: antrea
+            namespace: vmware-system-vks-public
+    version: v1.36.1+vmware.4
+    workers:
+      machineDeployments:
+        - class: node-pool
+          metadata:
+            annotations:
+              run.tanzu.vmware.com/resolve-os-image: os-name=photon
+          name: vault-node-pool01
+          replicas: 3
+          variables:
+            overrides:
+              - name: vmClass
+                value: best-effort-large
+---
+apiVersion: addons.kubernetes.vmware.com/v1alpha1
+kind: AddonInstall
+metadata:
+  name: example-cluster01-cert-manager         # Expects exactly <clustername>-cert-manager
+  namespace: vault-ns               # vSphere Namespace for cluster
+spec:
+  addonRef:
+    name: cert-manager
+  releaseFilter:
+    ref:
+      name: cert-manager.kubernetes.vmware.com.1.20.2-vmware.1-vks.1  # Set target AddonRelease name from kubectl get addonreleases -n vmware-system-vks-public
+      namespace: vmware-system-vks-public
+  clusters:
+  - selector:
+      matchLabels:
+        cluster.x-k8s.io/cluster-name: example-cluster01    # Expects <clustername>
