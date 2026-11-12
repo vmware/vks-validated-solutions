@@ -1,0 +1,78 @@
+{
+  "date": "2026-11-12",
+  "run_id": "codex-mig-20261112-145311",
+  "scope": "Disposable live validation of the existing companion scripts; existing workloads were not modified.",
+  "environment": {
+    "kubernetes": "v1.35.5+vmware.1",
+    "vcenter": "9.0.2 build 25148086",
+    "supervisor_namespace": "splunk",
+    "storage_policy": "vsan-esa-default-policy-raid5",
+    "volumes": "ReadWriteOnce, Filesystem, ext4, 1Gi"
+  },
+  "scripts": {
+    "same-vcenter-example.sh": {
+      "sha256": "289146ff65c6bfac4a3a5c90ad817f05cad1f39d0b5d9cb2630ef8fc4f33bf72"
+    },
+    "cross-vcenter-example.sh": {
+      "sha256": "8d97a9515d5ba175c6af49918b136d3e8f2fdd66586fe0eeed245cec953137b7"
+    }
+  },
+  "same_supervisor": {
+    "result": "passed",
+    "destination": "A separate disposable VKS cluster created for this test (one control plane, one worker).",
+    "checks": [
+      "Source writer stopped; volume detached.",
+      "Ready Supervisor snapshot created by script.",
+      "Source VKS PVC and PV deleted by script without finalizer removal or reclaim-policy changes.",
+      "Supervisor PVC/PV UIDs and FCD preserved.",
+      "Destination claim Bound with original source PVC name.",
+      "Read-only destination reader on the new worker matched both source SHA-256 checksums."
+    ],
+    "checksums": {
+      "marker.txt": "dc16bd827421db2ef9b4c2e5a7e269b376b84cbc107020ea1203502b60150ad9",
+      "payload.bin": "41bd650daa0440e7f519a3d8543235de826b35a358719a067f342d0cdda928c5"
+    },
+    "source_pv_finalizers_before_teardown": [
+      "kubernetes.io/pv-protection",
+      "external-attacher/csi-vsphere-vmware-com"
+    ],
+    "source_deletion_observation": "One snapshot-admission deletion rejection and initial retry were logged before explicit source PV removal. No later retries for that PV appeared in the captured logs across source provisioner pods. This is a bounded observation, not a guarantee for other versions."
+  },
+  "destination_registration": {
+    "result": "passed",
+    "fixture": "A separate, fresh 1Gi FCD created directly in the same demo vCenter with the namespace-assigned storage policy.",
+    "checks": [
+      "CnsRegisterVolume registered=true.",
+      "Supervisor PV matched the FCD ID, capacity, filesystem, and claim UID.",
+      "VKS static PV/PVC Bound using the Supervisor PVC name as volumeHandle.",
+      "Writer initialized the blank filesystem and wrote a marker.",
+      "Separate read-only reader matched the marker checksum."
+    ],
+    "marker_sha256": "7ffe6c162c0ce1285f4efc1b3728ba27875494806acfc6a9d9c0b5d8aed9903f",
+    "limitations": [
+      "No cross-vCenter vMotion or helper-VM transport was exercised.",
+      "This fresh-disk fixture validates registration/adoption/mounting, not preservation of data moved across vCenters."
+    ]
+  },
+  "live_guards": [
+    "Same-cluster source/destination rejected before storage changes.",
+    "Cross-script empty confirmation stopped after server dry-runs without creating objects.",
+    "Cross-script rerun rejected the existing registration before overwriting any object."
+  ],
+  "cleanup": {
+    "status": "complete",
+    "method": "UID-checked deletion of task-created objects and normal controller reclamation; no finalizers stripped.",
+    "recorded_kubernetes_objects_absent": 22,
+    "test_fcds_absent": 2,
+    "cluster_infrastructure_fcds_absent": 2,
+    "temporary_vms_absent": 2,
+    "temporary_cluster_removed": true,
+    "test_namespaces_removed": true,
+    "preexisting_resources_deleted": false
+  },
+  "limitations": [
+    "Velero backup/restore and application restart were outside the companion scripts and were not tested. Test manifests and an independent local payload backup were retained instead.",
+    "Snapshot preservation must still be rehearsed for other CSI/finalizer/version combinations."
+  ],
+  "additional_script_changes_required": false
+}
