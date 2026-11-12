@@ -15,138 +15,7 @@ Three approaches are provided. The correct choice depends on the source platform
 | A Kubernetes cluster running outside of vSphere | VKS | Copy the filesystem into a newly provisioned VKS PVC using `pv-migrate` | [`Any-K8s-to-VKS`](Any-K8s-to-VKS/) | https://www.vmware.com/docs/vmw-migrating-non-vsphere-kubernetes-workloads-to-vmware-vsphere-kubernetes-service-on-vmware-cloud-foundation |
 | A vSphere Kubernetes Cluster | Another vSphere Kubernetes Cluster | Preserve or migrate the FCD and reconstruct the VKS/Supervisor storage chain | [`VKS-to-VKS`](VKS-to-VKS/) | https://www.vmware.com/docs/vmw-migrating-workloads-between-vmware-vsphere-kubernetes-service-clusters |
 
-## Obtain Supervisor and VKS kubeconfigs
-
-The examples require **separate files with one selected context each**. A Supervisor kubeconfig accesses cluster definitions and Supervisor storage objects; a VKS kubeconfig accesses the applications inside that VKS cluster. Logging into one does not make its kubeconfig suitable for the other.
-
-Start with the matching **step 0** for the filenames and variables used by your migration:
-
-| Method | Access preparation |
-|---|---|
-| VKS → VKS | [0. Obtain kubeconfigs](VKS-to-VKS/examples/0-obtain-kubeconfigs.md) — both VKS clusters and their Supervisor(s) |
-| vSphere CSI Kubernetes → VKS | [0. Obtain kubeconfigs](vSphere-CSI-K8s-to-VKS/examples/0-obtain-kubeconfigs.md) — source, destination VKS and destination Supervisor |
-| Any Kubernetes → VKS | [0. Obtain kubeconfigs](Any-K8s-to-VKS/examples/0-obtain-kubeconfigs.md) — source and destination VKS |
-
-### Before login
-
-- Install `kubectl` plus **VCF CLI for VCF 9**, or the **vSphere Plugin for kubectl for vSphere 8**. Obtain the matching tools from your platform administrator; the vSphere plugin download page is `https://<supervisor-address>/`. Put the executables on `PATH` and verify `vcf version` or `kubectl vsphere login --help` before proceeding.
-- In vSphere Client, open **Workload Management → Supervisors** (Supervisor Management in vCenter 9) and find the Supervisor's **Control Plane Node Address**. Use this address for login, including VKS login; it is not the vCenter address or a VKS node address.
-- Obtain an account authorized for the hosting **Supervisor namespace** and the VKS cluster. Record that namespace and the VKS cluster name. An application namespace such as `default` inside VKS is a different namespace.
-- Run from a workstation/jump host that can reach both API endpoints. Establish VPN/routing and trust the endpoint certificates first. For a lab with untrusted certificates, both login tools support `--insecure-skip-tls-verify`; this disables certificate verification.
-
-Run the blocks individually in Bash or zsh; stop on any error. Keep exported credentials outside this repository and do not share or commit them.
-
-```bash
-umask 077
-export SUPERVISOR="supervisor.example.com"  # address only, without https://
-export SSO_USER="user@example.com"
-export SUP_NS="team-a"                    # hosting Supervisor namespace
-export VKS_CLUSTER="workload-cluster-a"
-export LOGIN_KUBECONFIG="$HOME/.kube/migration-login"
-mkdir -p "$HOME/.kube"
-```
-
-Use a dedicated login file so authentication does not merge migration contexts into your usual kubeconfig. Repeat the appropriate login for each Supervisor/VKS cluster, exporting the selected context before moving to the next cluster.
-
-### VCF 9: VCF CLI
-
-Authenticate directly to the Supervisor with a unique local context name; enter credentials when prompted:
-
-```bash
-KUBECONFIG="$LOGIN_KUBECONFIG" vcf context create migration-supervisor \
-  --endpoint "https://$SUPERVISOR" --type k8s --username "$SSO_USER"
-
-kubectl --kubeconfig="$LOGIN_KUBECONFIG" config get-contexts
-```
-
-Export the Supervisor context using the export block below. Use it to discover the exact VKS name if needed:
-
-```bash
-kubectl --kubeconfig="$OUTPUT_KUBECONFIG" \
-  -n "$SUP_NS" get clusters.cluster.x-k8s.io
-```
-
-Then authenticate to the VKS cluster through that same Supervisor:
-
-```bash
-KUBECONFIG="$LOGIN_KUBECONFIG" vcf context create migration-vks \
-  --endpoint "https://$SUPERVISOR" --type k8s --username "$SSO_USER" \
-  --workload-cluster-namespace "$SUP_NS" \
-  --workload-cluster-name "$VKS_CLUSTER"
-
-kubectl --kubeconfig="$LOGIN_KUBECONFIG" config get-contexts
-```
-
-Export the **VKS** context this time. Generated context names vary by CLI version; copy the exact name from the listing and check its API server. For another cluster use another local name, such as `migration-vks-destination`. If the context already exists, use `vcf context refresh <context-name>` to reauthenticate, then export again from its kubeconfig. These commands use direct Supervisor authentication (`k8s`), not VCF Automation's `cci` endpoint/token flow.
-
-### vSphere 8: kubectl vSphere plugin
-
-Login to the Supervisor and export its context first:
-
-```bash
-KUBECONFIG="$LOGIN_KUBECONFIG" kubectl vsphere login \
-  --server="$SUPERVISOR" --vsphere-username="$SSO_USER"
-kubectl --kubeconfig="$LOGIN_KUBECONFIG" config get-contexts
-```
-
-Then login to VKS and export its context to a different file. The flags retain their historic `tanzu` names:
-
-```bash
-KUBECONFIG="$LOGIN_KUBECONFIG" kubectl vsphere login \
-  --server="$SUPERVISOR" --vsphere-username="$SSO_USER" \
-  --tanzu-kubernetes-cluster-namespace="$SUP_NS" \
-  --tanzu-kubernetes-cluster-name="$VKS_CLUSTER"
-kubectl --kubeconfig="$LOGIN_KUBECONFIG" config get-contexts
-```
-
-### Export and check each selected context
-
-Set the exact context and desired output path from your method's step 0. **The output must differ from the login/input file**; shell redirection would otherwise erase the input before reading it.
-
-```bash
-export EXPORT_CONTEXT="replace-with-exact-context-name"
-export OUTPUT_KUBECONFIG="$HOME/supervisor-kubeconfig" # change for each export
-
-kubectl --kubeconfig="$LOGIN_KUBECONFIG" --context="$EXPORT_CONTEXT" \
-  config view --raw --minify --flatten > "$OUTPUT_KUBECONFIG"
-chmod 600 "$OUTPUT_KUBECONFIG"
-kubectl --kubeconfig="$OUTPUT_KUBECONFIG" config get-contexts
-kubectl --kubeconfig="$OUTPUT_KUBECONFIG" config view --minify \
-  -o jsonpath='{.clusters[0].cluster.server}{"\n"}'
-```
-
-`--raw` preserves credentials, `--minify` selects only the named context, and `--flatten` embeds referenced certificate files. An `exec` authentication plugin still requires its CLI (for example `vcf`) and local login/session on the machine using the file. Exporting does not renew credentials.
-
-Immediately after each export, run the matching API check below (`OUTPUT_KUBECONFIG` must still point to that exported file):
-
-```bash
-# Supervisor: use the hosting namespace, not a cluster-wide node query.
-kubectl --kubeconfig="$OUTPUT_KUBECONFIG" --request-timeout=20s \
-  get pvc -n "$SUP_NS"
-# VKS: use an existing application namespace; an empty list is OK.
-kubectl --kubeconfig="$OUTPUT_KUBECONFIG" --request-timeout=20s \
-  get pvc -n default
-```
-
-Successful reads do not establish all migration permissions. Run the method's authorization checks before cutover. If credentials expire, repeat login/refresh **and re-export the files**. `Unauthorized` indicates an authentication problem; `Forbidden` indicates insufficient permissions. Timeouts require endpoint/routing checks; certificate errors require the correct CA trust. If the VKS context is missing, check the hosting Supervisor namespace, cluster name and account permissions.
-
-### Export an existing source context
-
-For a non-VKS source, first authenticate using that platform's normal procedure (for example `oc login` for OpenShift), or obtain a kubeconfig from its administrator. List its contexts, then use the same export block with `LOGIN_KUBECONFIG` pointing to that source file and `OUTPUT_KUBECONFIG` set to the source filename in step 0. Do not run a Supervisor login against a non-VKS source.
-
-```bash
-export LOGIN_KUBECONFIG="$HOME/.kube/config" # replace if source login uses another file
-kubectl --kubeconfig="$LOGIN_KUBECONFIG" config get-contexts
-# Now run the export block with the source context and a separate output path.
-```
-
-### Validation and references
-
-Validation details are recorded in [the kubeconfig check](kubeconfig-validation-2026-11-12.md). The vSphere 8 flow is based on the vendor documentation and installed plugin help; it requires a vSphere 8 environment for live validation.
-
-- [Broadcom: Supervisor/VKS login and context troubleshooting](https://knowledge.broadcom.com/external/article/435399/troubleshooting-kubectl-vsphere-contexts.html)
-- [VCF CLI quick start](https://developer.broadcom.com/xapis/vcf-cli-api/latest/api-docs.html) and [Broadcom VKS solution with workload-context login examples](https://www.vmware.com/docs/isv-scality-vks-vcf)
-- [Kubernetes: kubeconfig export options](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands.html) and [Broadcom: VCF authentication executable dependency](https://knowledge.broadcom.com/external/article/408678/unable-to-run-vcf-consumption-command-li.html)
+Before running an example, [obtain the required kubeconfigs](#obtain-supervisor-and-vks-kubeconfigs).
 
 ## Decision guide
 
@@ -279,3 +148,141 @@ Before using these patterns:
 3. Rehearse migration and rollback with representative data.
 4. Confirm storage policy, networking, security, and quota requirements.
 5. Retain an independent, application-consistent backup.
+
+## Obtain Supervisor and VKS kubeconfigs
+
+<details>
+<summary>Expand setup instructions: login, export and verify kubeconfigs</summary>
+
+The examples require **separate files with one selected context each**. A Supervisor kubeconfig accesses cluster definitions and Supervisor storage objects; a VKS kubeconfig accesses the applications inside that VKS cluster. Logging into one does not make its kubeconfig suitable for the other.
+
+Start with the matching **step 0** for the filenames and variables used by your migration:
+
+| Method | Access preparation |
+|---|---|
+| VKS → VKS | [0. Obtain kubeconfigs](VKS-to-VKS/examples/0-obtain-kubeconfigs.md) — both VKS clusters and their Supervisor(s) |
+| vSphere CSI Kubernetes → VKS | [0. Obtain kubeconfigs](vSphere-CSI-K8s-to-VKS/examples/0-obtain-kubeconfigs.md) — source, destination VKS and destination Supervisor |
+| Any Kubernetes → VKS | [0. Obtain kubeconfigs](Any-K8s-to-VKS/examples/0-obtain-kubeconfigs.md) — source and destination VKS |
+
+### Before login
+
+- Install `kubectl` plus **VCF CLI for VCF 9**, or the **vSphere Plugin for kubectl for vSphere 8**. Obtain the matching tools from your platform administrator; the vSphere plugin download page is `https://<supervisor-address>/`. Put the executables on `PATH` and verify `vcf version` or `kubectl vsphere login --help` before proceeding.
+- In vSphere Client, open **Workload Management → Supervisors** (Supervisor Management in vCenter 9) and find the Supervisor's **Control Plane Node Address**. Use this address for login, including VKS login; it is not the vCenter address or a VKS node address.
+- Obtain an account authorized for the hosting **Supervisor namespace** and the VKS cluster. Record that namespace and the VKS cluster name. An application namespace such as `default` inside VKS is a different namespace.
+- Run from a workstation/jump host that can reach both API endpoints. Establish VPN/routing and trust the endpoint certificates first. For a lab with untrusted certificates, both login tools support `--insecure-skip-tls-verify`; this disables certificate verification.
+
+Run the blocks individually in Bash or zsh; stop on any error. Keep exported credentials outside this repository and do not share or commit them.
+
+```bash
+umask 077
+export SUPERVISOR="supervisor.example.com"  # address only, without https://
+export SSO_USER="user@example.com"
+export SUP_NS="team-a"                    # hosting Supervisor namespace
+export VKS_CLUSTER="workload-cluster-a"
+export LOGIN_KUBECONFIG="$HOME/.kube/migration-login"
+mkdir -p "$HOME/.kube"
+```
+
+Use a dedicated login file so authentication does not merge migration contexts into your usual kubeconfig. Repeat the appropriate login for each Supervisor/VKS cluster, exporting the selected context before moving to the next cluster.
+
+### VCF 9: VCF CLI
+
+Authenticate directly to the Supervisor with a unique local context name; enter credentials when prompted:
+
+```bash
+KUBECONFIG="$LOGIN_KUBECONFIG" vcf context create migration-supervisor \
+  --endpoint "https://$SUPERVISOR" --type k8s --username "$SSO_USER"
+
+kubectl --kubeconfig="$LOGIN_KUBECONFIG" config get-contexts
+```
+
+Export the Supervisor context using the export block below. Use it to discover the exact VKS name if needed:
+
+```bash
+kubectl --kubeconfig="$OUTPUT_KUBECONFIG" \
+  -n "$SUP_NS" get clusters.cluster.x-k8s.io
+```
+
+Then authenticate to the VKS cluster through that same Supervisor:
+
+```bash
+KUBECONFIG="$LOGIN_KUBECONFIG" vcf context create migration-vks \
+  --endpoint "https://$SUPERVISOR" --type k8s --username "$SSO_USER" \
+  --workload-cluster-namespace "$SUP_NS" \
+  --workload-cluster-name "$VKS_CLUSTER"
+
+kubectl --kubeconfig="$LOGIN_KUBECONFIG" config get-contexts
+```
+
+Export the **VKS** context this time. Generated context names vary by CLI version; copy the exact name from the listing and check its API server. For another cluster use another local name, such as `migration-vks-destination`. If the context already exists, use `vcf context refresh <context-name>` to reauthenticate, then export again from its kubeconfig. These commands use direct Supervisor authentication (`k8s`), not VCF Automation's `cci` endpoint/token flow.
+
+### vSphere 8: kubectl vSphere plugin
+
+Login to the Supervisor and export its context first:
+
+```bash
+KUBECONFIG="$LOGIN_KUBECONFIG" kubectl vsphere login \
+  --server="$SUPERVISOR" --vsphere-username="$SSO_USER"
+kubectl --kubeconfig="$LOGIN_KUBECONFIG" config get-contexts
+```
+
+Then login to VKS and export its context to a different file. The flags retain their historic `tanzu` names:
+
+```bash
+KUBECONFIG="$LOGIN_KUBECONFIG" kubectl vsphere login \
+  --server="$SUPERVISOR" --vsphere-username="$SSO_USER" \
+  --tanzu-kubernetes-cluster-namespace="$SUP_NS" \
+  --tanzu-kubernetes-cluster-name="$VKS_CLUSTER"
+kubectl --kubeconfig="$LOGIN_KUBECONFIG" config get-contexts
+```
+
+### Export and check each selected context
+
+Set the exact context and desired output path from your method's step 0. **The output must differ from the login/input file**; shell redirection would otherwise erase the input before reading it.
+
+```bash
+export EXPORT_CONTEXT="replace-with-exact-context-name"
+export OUTPUT_KUBECONFIG="$HOME/supervisor-kubeconfig" # change for each export
+
+kubectl --kubeconfig="$LOGIN_KUBECONFIG" --context="$EXPORT_CONTEXT" \
+  config view --raw --minify --flatten > "$OUTPUT_KUBECONFIG"
+chmod 600 "$OUTPUT_KUBECONFIG"
+kubectl --kubeconfig="$OUTPUT_KUBECONFIG" config get-contexts
+kubectl --kubeconfig="$OUTPUT_KUBECONFIG" config view --minify \
+  -o jsonpath='{.clusters[0].cluster.server}{"\n"}'
+```
+
+`--raw` preserves credentials, `--minify` selects only the named context, and `--flatten` embeds referenced certificate files. An `exec` authentication plugin still requires its CLI (for example `vcf`) and local login/session on the machine using the file. Exporting does not renew credentials.
+
+Immediately after each export, run the matching API check below (`OUTPUT_KUBECONFIG` must still point to that exported file):
+
+```bash
+# Supervisor: use the hosting namespace, not a cluster-wide node query.
+kubectl --kubeconfig="$OUTPUT_KUBECONFIG" --request-timeout=20s \
+  get pvc -n "$SUP_NS"
+# VKS: use an existing application namespace; an empty list is OK.
+kubectl --kubeconfig="$OUTPUT_KUBECONFIG" --request-timeout=20s \
+  get pvc -n default
+```
+
+Successful reads do not establish all migration permissions. Run the method's authorization checks before cutover. If credentials expire, repeat login/refresh **and re-export the files**. `Unauthorized` indicates an authentication problem; `Forbidden` indicates insufficient permissions. Timeouts require endpoint/routing checks; certificate errors require the correct CA trust. If the VKS context is missing, check the hosting Supervisor namespace, cluster name and account permissions.
+
+### Export an existing source context
+
+For a non-VKS source, first authenticate using that platform's normal procedure (for example `oc login` for OpenShift), or obtain a kubeconfig from its administrator. List its contexts, then use the same export block with `LOGIN_KUBECONFIG` pointing to that source file and `OUTPUT_KUBECONFIG` set to the source filename in step 0. Do not run a Supervisor login against a non-VKS source.
+
+```bash
+export LOGIN_KUBECONFIG="$HOME/.kube/config" # replace if source login uses another file
+kubectl --kubeconfig="$LOGIN_KUBECONFIG" config get-contexts
+# Now run the export block with the source context and a separate output path.
+```
+
+### Validation and references
+
+Validation details are recorded in [the kubeconfig check](kubeconfig-validation-2026-11-12.md). The vSphere 8 flow is based on the vendor documentation and installed plugin help; it requires a vSphere 8 environment for live validation.
+
+- [Broadcom: Supervisor/VKS login and context troubleshooting](https://knowledge.broadcom.com/external/article/435399/troubleshooting-kubectl-vsphere-contexts.html)
+- [VCF CLI quick start](https://developer.broadcom.com/xapis/vcf-cli-api/latest/api-docs.html) and [Broadcom VKS solution with workload-context login examples](https://www.vmware.com/docs/isv-scality-vks-vcf)
+- [Kubernetes: kubeconfig export options](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands.html) and [Broadcom: VCF authentication executable dependency](https://knowledge.broadcom.com/external/article/408678/unable-to-run-vcf-consumption-command-li.html)
+
+</details>
