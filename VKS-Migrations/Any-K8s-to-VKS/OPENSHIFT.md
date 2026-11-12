@@ -53,7 +53,7 @@ oc adm policy add-scc-to-user privileged \
 The exact `pv-migrate` Helm value names can change between releases. Before relying on an override file:
 
 ```bash
-pv-migrate version
+pv-migrate --version
 pv-migrate --help
 ```
 

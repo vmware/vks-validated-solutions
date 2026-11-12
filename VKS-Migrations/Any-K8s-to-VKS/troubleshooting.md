@@ -52,6 +52,8 @@ Inspect the source rsync pod logs and file permissions. On OpenShift, root-owned
 
 Do not treat code 23 as success without reviewing exactly what was omitted.
 
+In a non-root copy, `failed to set permissions on "/dest/."` can mean the migration UID can write files but cannot chmod the volume root. The [restricted values example](manifests/pv-migrate-restricted-values.yaml) skips permission updates with `--no-perms`; use it only when preserving permission modes is not required. It also supplies the capabilities/seccomp settings needed by the pv-migrate 3.7.0 pods in the live restricted-policy test. See [script usage](scripts/README.md).
+
 ## Source or destination PVC is mounted
 
 `pv-migrate` fails safely when it detects mounted PVCs.

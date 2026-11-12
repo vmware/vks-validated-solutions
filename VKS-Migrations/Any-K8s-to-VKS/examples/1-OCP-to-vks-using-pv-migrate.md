@@ -43,7 +43,7 @@ Confirm access after setting the variables:
 ```bash
 oc --kubeconfig "$SRC_KUBECONFIG" whoami
 kubectl --kubeconfig "$DST_KUBECONFIG" auth can-i create pods -n "$DST_NAMESPACE"
-pv-migrate version
+pv-migrate --version
 ```
 
 Convenience wrappers:

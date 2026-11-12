@@ -1,0 +1,24 @@
+# pv-migrate 3.7.0: use with NON_ROOT=yes in the companion script.
+# Requires readable source files and a writable destination for the non-root user.
+# This does not preserve ownership or permission modes, or configure an OpenShift SCC.
+sshd:
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      add: []
+      drop: [ALL]
+rsync:
+  # Non-root cannot chmod an existing destination root owned by another UID.
+  # Opt in only when retaining existing destination permission modes is acceptable.
+  extraArgs: "--no-perms"
+  podSecurityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      add: []
+      drop: [ALL]

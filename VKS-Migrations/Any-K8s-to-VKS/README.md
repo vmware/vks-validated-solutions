@@ -189,8 +189,9 @@ See [`OPENSHIFT.md`](OPENSHIFT.md).
 | [1. OpenShift to VKS using pv-migrate](examples/1-OCP-to-vks-using-pv-migrate.md) | Detailed filesystem-copy walkthrough |
 | [`OPENSHIFT.md`](OPENSHIFT.md) | OpenShift SCC and root-owned data considerations |
 | [`troubleshooting.md`](troubleshooting.md) | Common failures and diagnostic commands |
-| [`scripts/pv-migrate-poc.sh`](scripts/pv-migrate-poc.sh) | Concise proof-of-concept orchestration script |
+| [`scripts/pv-migrate-poc.sh`](scripts/pv-migrate-poc.sh) | Guarded final PVC copy; see [usage and validation](scripts/README.md) |
 | [`manifests/destination-pvc.yaml`](manifests/destination-pvc.yaml) | Destination PVC template |
+| [Restricted pv-migrate values](manifests/pv-migrate-restricted-values.yaml) | Pod security overrides for non-root copies with pv-migrate 3.7.0 |
 | [`manifests/velero-resource-modifier.yaml`](manifests/velero-resource-modifier.yaml) | Example restore modifier to keep workloads stopped |
 
 ## Validation checklist
