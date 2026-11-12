@@ -22,8 +22,8 @@ Start with step 0, then follow the step 1 walkthrough before using the companion
 |---|---|
 | [0. Obtain kubeconfigs](examples/0-obtain-kubeconfigs.md) | Verify source, Supervisor and VKS access |
 | [1. OpenShift to VKS using FCD adoption](examples/1-OCP-VKS-migration-example.md) | Detailed migration walkthrough |
-| [`scripts/zero-copy-migration-poc-script.sh`](scripts/zero-copy-migration-poc-script.sh) | Companion proof of concept for FCD adoption; metadata migration is covered in the walkthrough |
-| [`quick-s3-endpoint-for-testing.md`](quick-s3-endpoint-for-testing.md) | Temporary S3-compatible endpoint for Velero lab testing |
+| [scripts/zero-copy-migration-poc-script.sh](scripts/zero-copy-migration-poc-script.sh) | Companion proof of concept for FCD adoption; metadata migration is covered in the walkthrough |
+| [quick-s3-endpoint-for-testing.md](quick-s3-endpoint-for-testing.md) | Temporary S3-compatible endpoint for Velero lab testing |
 
 ## When to use this approach
 
