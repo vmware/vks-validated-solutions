@@ -151,9 +151,6 @@ Before using these patterns:
 
 ## Obtain Supervisor and VKS kubeconfigs
 
-<details>
-<summary>Expand setup instructions: login, export and verify kubeconfigs</summary>
-
 The examples require **separate files with one selected context each**. A Supervisor kubeconfig accesses cluster definitions and Supervisor storage objects; a VKS kubeconfig accesses the applications inside that VKS cluster. Logging into one does not make its kubeconfig suitable for the other.
 
 Start with the matching **step 0** for the filenames and variables used by your migration:
@@ -284,5 +281,3 @@ Validation details are recorded in [the kubeconfig check](kubeconfig-validation-
 - [Broadcom: Supervisor/VKS login and context troubleshooting](https://knowledge.broadcom.com/external/article/435399/troubleshooting-kubectl-vsphere-contexts.html)
 - [VCF CLI quick start](https://developer.broadcom.com/xapis/vcf-cli-api/latest/api-docs.html) and [Broadcom VKS solution with workload-context login examples](https://www.vmware.com/docs/isv-scality-vks-vcf)
 - [Kubernetes: kubeconfig export options](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands.html) and [Broadcom: VCF authentication executable dependency](https://knowledge.broadcom.com/external/article/408678/unable-to-run-vcf-consumption-command-li.html)
-
-</details>
