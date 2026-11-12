@@ -1,5 +1,7 @@
 # VKS Persistent Volume Migration Examples
 
+Start with [0. Obtain the Supervisor and VKS kubeconfigs](0-obtain-kubeconfigs.md) before choosing a migration procedure.
+
 > [!CAUTION]
 > These procedures are proofs of concept. Test them with disposable workloads before using them with production data. Quiesce the application and take an independent backup before modifying storage objects.
 

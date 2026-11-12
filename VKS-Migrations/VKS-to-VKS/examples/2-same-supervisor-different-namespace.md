@@ -24,7 +24,7 @@ The workstation running these commands requires:
 - `velero`
 - [`govc`](https://github.com/vmware/govmomi/releases) 0.49.0 or later 
 - `jq`
-- Valid kubeconfig files for both VKS clusters and the shared Supervisor
+- Valid kubeconfig files for both VKS clusters and the shared Supervisor: complete [Step 0](0-obtain-kubeconfigs.md) first
 - Permission to read Supervisor PVs and to manage namespaced PVCs in the source and destination Supervisor namespaces
 - Permission to create `CnsRegisterVolume` objects in the destination Supervisor namespace
 - A vCenter account with sufficient privileges to create/manage the powered-off helper VM and run `govc volume.rm -keep`

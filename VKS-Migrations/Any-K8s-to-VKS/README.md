@@ -182,8 +182,11 @@ See [`OPENSHIFT.md`](OPENSHIFT.md).
 
 ## Files
 
+Start with [0. Obtain the source and destination kubeconfigs](examples/0-obtain-kubeconfigs.md), then follow the worked example.
+
 | File | Purpose |
 |---|---|
+| [`examples/0-obtain-kubeconfigs.md`](examples/0-obtain-kubeconfigs.md) | Obtain and verify the kubeconfig files used below |
 | [`examples.md`](examples.md) | Detailed step-by-step example |
 | [`OPENSHIFT.md`](OPENSHIFT.md) | OpenShift SCC and root-owned data considerations |
 | [`troubleshooting.md`](troubleshooting.md) | Common failures and diagnostic commands |

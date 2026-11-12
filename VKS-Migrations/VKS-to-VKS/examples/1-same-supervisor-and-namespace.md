@@ -18,7 +18,7 @@ The workstation running these commands requires:
 
 - `kubectl`
 - `velero`
-- Valid kubeconfig files for both VKS clusters and the Supervisor
+- Valid kubeconfig files for both VKS clusters and the Supervisor: complete [Step 0](0-obtain-kubeconfigs.md) first
 - Permission to read the Supervisor PV associated with the migration and to manage namespaced PVCs and `VolumeSnapshot` objects
 - A destination VKS cluster using the **same Supervisor namespace** as the source
 

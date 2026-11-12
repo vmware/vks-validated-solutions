@@ -4,6 +4,8 @@ This example copies data from an OpenShift PVC to a VKS PVC and uses Velero for 
 
 The commands are intentionally explicit. Replace every value in the configuration section before running them.
 
+Complete [Step 0: Obtain the source and destination kubeconfigs](examples/0-obtain-kubeconfigs.md) first.
+
 ## 1. Prerequisites
 
 Install locally:
@@ -13,14 +15,6 @@ Install locally:
 - `velero`
 - `pv-migrate`
 - `helm`
-
-Confirm access to both clusters:
-
-```bash
-oc --kubeconfig "$SRC_KUBECONFIG" whoami
-kubectl --kubeconfig "$DST_KUBECONFIG" auth can-i create pods -n "$DST_NAMESPACE"
-pv-migrate version
-```
 
 The destination VKS cluster must provide a LoadBalancer implementation reachable from the source cluster when using the `loadbalancer` strategy.
 
@@ -42,6 +36,14 @@ export DST_PVC_SIZE="100Gi"
 export BACKUP_NAME="my-application-pre-migration"
 export RESTORE_NAME="my-application-to-vks"
 export MIGRATION_ID="my-application-data"
+```
+
+Confirm access after setting the variables:
+
+```bash
+oc --kubeconfig "$SRC_KUBECONFIG" whoami
+kubectl --kubeconfig "$DST_KUBECONFIG" auth can-i create pods -n "$DST_NAMESPACE"
+pv-migrate version
 ```
 
 Convenience wrappers:

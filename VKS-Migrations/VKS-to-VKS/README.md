@@ -211,6 +211,8 @@ See [Example 3: Across Supervisors and vCenters](examples/3-across-supervisors-a
 
 ## Worked Examples
 
+Start with [0. Obtain the Supervisor and VKS kubeconfigs](examples/0-obtain-kubeconfigs.md). It maps the shared login procedure to the files required by each scenario.
+
 The detailed procedures are split by migration scenario:
 
 1. [Same Supervisor and Supervisor namespace](examples/1-same-supervisor-and-namespace.md)

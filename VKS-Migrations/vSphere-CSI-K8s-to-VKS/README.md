@@ -199,6 +199,8 @@ kubectl --kubeconfig="${SUPERVISOR_KUBECONFIG}" \
 
 ## Worked example
 
+Start with [0. Obtain the source, Supervisor and VKS kubeconfigs](examples/0-obtain-kubeconfigs.md).
+
 See [`OCP-VKS-migration-example.md`](OCP-VKS-migration-example.md) for a complete OpenShift-to-VKS walkthrough.
 For a visual demo, see [Turtle Demo](https://github.com/darkmesh-b/turtle-pv-demo)
 

@@ -1,5 +1,7 @@
 # VKS Persistent Volume Migration: Worked Examples
 
+Start with [0. Obtain the Supervisor and VKS kubeconfigs](examples/0-obtain-kubeconfigs.md).
+
 The worked examples have been split into separate procedures:
 
 1. [Same Supervisor and Supervisor namespace](examples/1-same-supervisor-and-namespace.md)

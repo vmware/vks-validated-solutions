@@ -16,7 +16,7 @@ This example preserves the source disk, attaches it to a helper VM, migrates the
 ## Prerequisites
 
 - `kubectl`, `velero`, `govc` and `jq`
-- Valid kubeconfigs for both VKS clusters and both Supervisors
+- Valid kubeconfigs for both VKS clusters and both Supervisors: complete [Step 0](0-obtain-kubeconfigs.md) first
 - Permission to read Supervisor PVs, manage namespaced PVCs and snapshots, and create destination `CnsRegisterVolume` objects
 - vCenter privileges to manage the helper VM and perform cross-vCenter migration
 - Source and destination compute, storage, networking and storage policies compatible with the intended migration

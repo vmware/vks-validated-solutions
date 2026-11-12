@@ -11,7 +11,7 @@ The commands are intentionally explicit. Review every variable and command befor
 
 ## Prerequisites
 
-- Access to the OpenShift source cluster, destination Supervisor and destination VKS cluster.
+- Access to the OpenShift source cluster, destination Supervisor and destination VKS cluster: complete [Step 0](examples/0-obtain-kubeconfigs.md) first.
 - `oc`, `kubectl`, `velero` and `jq` installed.
 - Velero installed on both workload clusters and configured to use the same backup store.
 - The source PV uses `csi.vsphere.vmware.com`.
