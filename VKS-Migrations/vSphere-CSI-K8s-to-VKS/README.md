@@ -16,17 +16,14 @@ The application data is not copied. The same FCD is detached from the source clu
 
 ## Repository contents
 
-```text
-.
-├── README.md
-├── OCP-VKS-migration-example.md
-├── zero-copy-migration-poc-script.sh
-└── quick-s3-endpoint-for-testing.md
-```
+Start with step 0, then follow the step 1 walkthrough before using the companion script.
 
-- [`OCP-VKS-migration-example.md`](OCP-VKS-migration-example.md) contains the detailed OpenShift-to-VKS procedure.
-- [`zero-copy-migration-poc-script.sh`](zero-copy-migration-poc-script.sh) provides a compact proof-of-concept implementation.
-- [`quick-s3-endpoint-for-testing.md`](quick-s3-endpoint-for-testing.md) creates a temporary S3-compatible endpoint for lab testing.
+| File | Purpose |
+|---|---|
+| [0. Obtain kubeconfigs](examples/0-obtain-kubeconfigs.md) | Verify source, Supervisor and VKS access |
+| [1. OpenShift to VKS using FCD adoption](examples/1-OCP-VKS-migration-example.md) | Detailed migration walkthrough |
+| [`scripts/zero-copy-migration-poc-script.sh`](scripts/zero-copy-migration-poc-script.sh) | Companion proof of concept for FCD adoption; metadata migration is covered in the walkthrough |
+| [`quick-s3-endpoint-for-testing.md`](quick-s3-endpoint-for-testing.md) | Temporary S3-compatible endpoint for Velero lab testing |
 
 ## When to use this approach
 
@@ -197,13 +194,8 @@ kubectl --kubeconfig="${SUPERVISOR_KUBECONFIG}" \
 | Cross-vCenter use | Requires the FCD to be migrated to the destination vCenter before registration. |
 | Application translation | Images, ingress classes, security settings, StorageClasses and operators may require destination-specific changes. |
 
-## Worked example
-
-Start with [0. Obtain the source, Supervisor and VKS kubeconfigs](examples/0-obtain-kubeconfigs.md).
-
-See [`OCP-VKS-migration-example.md`](OCP-VKS-migration-example.md) for a complete OpenShift-to-VKS walkthrough.
-For a visual demo, see [Turtle Demo](https://github.com/darkmesh-b/turtle-pv-demo)
-
 ## Related documentation
 
 This repository accompanies the [whitepaper](https://www.vmware.com/docs/vmw-kubernetes-workload-migration-to-vks) on migrating Kubernetes workloads to VKS. Validate the procedure against current product documentation and support guidance before production use.
+
+For a visual demo, see [Turtle Demo](https://github.com/darkmesh-b/turtle-pv-demo).

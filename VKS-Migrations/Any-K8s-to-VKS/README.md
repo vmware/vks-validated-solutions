@@ -21,6 +21,8 @@ Typical source platforms include:
 > [!IMPORTANT]
 > This solution is an example migration pattern, not a substitute for application-specific backup, consistency and recovery procedures. Test the complete workflow and rollback process before using it with production data.
 
+Start with [0. Obtain kubeconfigs](examples/0-obtain-kubeconfigs.md), then follow [1. OpenShift to VKS using pv-migrate](examples/1-OCP-to-vks-using-pv-migrate.md).
+
 ## Architecture
 
 ```mermaid
@@ -148,9 +150,8 @@ For cross-cluster migrations, the primary strategies are:
 - `loadbalancer`: exposes the SSH endpoint using a LoadBalancer Service.
 - `nodeport`: exposes a selected NodePort and requires suitable routing and firewall rules.
 - `local`: tunnels through the operator workstation; useful when direct connectivity is not possible, but less suitable for large transfers.
-- `--rsync-push`: reverses the default rsync direction so the source initiates the connection to the destination.
 
-The validated OpenShift-to-VKS pattern uses `--rsync-push`. This is useful when the source cluster should not expose an inbound migration service.
+The OpenShift-to-VKS example uses `loadbalancer` with `--rsync-push`, so the source initiates the connection to the destination and does not need to expose an inbound migration service.
 
 ```mermaid
 flowchart LR
@@ -182,12 +183,10 @@ See [`OPENSHIFT.md`](OPENSHIFT.md).
 
 ## Files
 
-Start with [0. Obtain the source and destination kubeconfigs](examples/0-obtain-kubeconfigs.md), then follow the worked example.
-
 | File | Purpose |
 |---|---|
-| [`examples/0-obtain-kubeconfigs.md`](examples/0-obtain-kubeconfigs.md) | Obtain and verify the kubeconfig files used below |
-| [`examples.md`](examples.md) | Detailed step-by-step example |
+| [`examples/0-obtain-kubeconfigs.md`](examples/0-obtain-kubeconfigs.md) | Obtain and verify source and destination access |
+| [1. OpenShift to VKS using pv-migrate](examples/1-OCP-to-vks-using-pv-migrate.md) | Detailed filesystem-copy walkthrough |
 | [`OPENSHIFT.md`](OPENSHIFT.md) | OpenShift SCC and root-owned data considerations |
 | [`troubleshooting.md`](troubleshooting.md) | Common failures and diagnostic commands |
 | [`scripts/pv-migrate-poc.sh`](scripts/pv-migrate-poc.sh) | Concise proof-of-concept orchestration script |

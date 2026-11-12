@@ -27,4 +27,4 @@ kubectl --kubeconfig="$VKS_KUBECONFIG" auth can-i create persistentvolumes
 kubectl --kubeconfig="$VKS_KUBECONFIG" auth can-i create persistentvolumeclaims -n "$TARGET_NS"
 ```
 
-The application and Supervisor namespaces are independent even when their names match. Resolve failed access checks with the relevant administrator; exporting a kubeconfig does not add permissions. Continue with the [OpenShift-to-VKS example](../OCP-VKS-migration-example.md), which lists the remaining migration prerequisites.
+The application and Supervisor namespaces are independent even when their names match. Resolve failed access checks with the relevant administrator; exporting a kubeconfig does not add permissions. Continue with the [OpenShift-to-VKS example](1-OCP-VKS-migration-example.md), which lists the remaining migration prerequisites.

@@ -11,7 +11,7 @@ The commands are intentionally explicit. Review every variable and command befor
 
 ## Prerequisites
 
-- Access to the OpenShift source cluster, destination Supervisor and destination VKS cluster: complete [Step 0](examples/0-obtain-kubeconfigs.md) first.
+- Access to the OpenShift source cluster, destination Supervisor and destination VKS cluster: complete [Step 0](0-obtain-kubeconfigs.md) first.
 - `oc`, `kubectl`, `velero` and `jq` installed.
 - Velero installed on both workload clusters and configured to use the same backup store.
 - The source PV uses `csi.vsphere.vmware.com`.
@@ -201,7 +201,7 @@ Confirm that the backup phase is `Completed` and review warnings before proceedi
 
 ## 6. Restore manifests into VKS
 
-Use destination resource modifiers where source-specific images, ingress classes, security settings or other fields must change. See [`velero-destination-configmap-modifier-examples.md`](velero-destination-configmap-modifier-examples.md).
+Use destination resource modifiers where source-specific images, ingress classes, security settings or other fields must change. See [`velero-destination-configmap-modifier-examples.md`](../../velero-destination-configmap-modifier-examples.md).
 
 Note: update the describe command with the S3 cert if available
 

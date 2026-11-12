@@ -4,7 +4,7 @@ This example copies data from an OpenShift PVC to a VKS PVC and uses Velero for 
 
 The commands are intentionally explicit. Replace every value in the configuration section before running them.
 
-Complete [Step 0: Obtain the source and destination kubeconfigs](examples/0-obtain-kubeconfigs.md) first.
+Complete [Step 0: Obtain the source and destination kubeconfigs](0-obtain-kubeconfigs.md) first.
 
 ## 1. Prerequisites
 
