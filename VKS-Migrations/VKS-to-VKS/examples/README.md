@@ -13,13 +13,13 @@ Choose the example by the **Supervisor namespaces hosting the source and destina
 
 Examples 1 and 2 retain the FCD on its existing datastore; destination hosts must be able to access it and the disk's storage policy must be assigned to the destination Supervisor namespace. Example 3 can relocate the disk using Storage vMotion. See the [overview](../README.md#overview) for access and datastore requirements and the [architecture](../README.md#architecture) for the storage identities.
 
-Velero is used for application manifests and metadata. The persistent storage relationship is reconstructed separately in each example.
+Velero is used for application manifests and metadata. The persistent storage relationship is reconstructed separately in each example. These examples reconstruct one PVC; repeat the storage steps for every claim the application needs. Before using Velero restore, configure the destination Velero installation to access the source backup and confirm that the backup is visible there.
 
 ## Running the commands
 
 Use an interactive Bash or zsh session and run the numbered steps individually. Keep the aliases, variables and functions defined by earlier steps in that session. Stop after any error; later steps depend on the checks succeeding. Guarded code blocks use function-local `return` to stop the step without explicitly exiting your shell. They do not enable `set -e`; if your session already enables it, a failing command can still terminate the shell.
 
-Run companion scripts in a separate Bash process, after setting the required variables and completing their prerequisites:
+The commands below are companion scripts, not replacements for the full walkthroughs. Run them in a separate Bash process after setting the required variables and completing their prerequisites:
 
 | Script | Scope | Invocation |
 |---|---|---|
@@ -27,3 +27,5 @@ Run companion scripts in a separate Bash process, after setting the required var
 | [cross-vcenter-example.sh](../scripts/cross-vcenter-example.sh) | Scenario 3: destination registration and adoption after the disk has been migrated and safely detached | `bash scripts/cross-vcenter-example.sh` |
 
 These paths assume the working directory is `VKS-to-VKS`. The scripts refuse to run when sourced, before changing shell options or issuing migration commands. Scenario 2's helper-VM handover is covered by its worked example, not by `same-vcenter-example.sh`.
+
+Rehearse the snapshot-only paths in Examples 1 and 3 on the target versions, including source VKS PV deletion and eventual snapshot cleanup. A successful destination mount alone does not prove that source deletion retries have stopped. For the same-vCenter script, set `SUP_NS` to the shared Supervisor namespace.

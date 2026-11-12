@@ -13,6 +13,16 @@ This example preserves the source disk, attaches it to a helper VM, migrates the
 > Cross-vCenter vMotion may transfer the disk's storage blocks. The procedure avoids a Kubernetes-level or filesystem-level data copy, but it does not imply that no storage data is transferred by vMotion.
 
 
+## Prerequisites
+
+- `kubectl`, `velero`, `govc` and `jq`
+- Valid kubeconfigs for both VKS clusters and both Supervisors
+- Permission to read Supervisor PVs, manage namespaced PVCs and snapshots, and create destination `CnsRegisterVolume` objects
+- vCenter privileges to manage the helper VM and perform cross-vCenter migration
+- Source and destination compute, storage, networking and storage policies compatible with the intended migration
+
+The helper cleanup guard uses the govc 0.56.0 JSON fields from Example 2; inspect your version's response if they differ.
+
 ## 1. Configure source and destination contexts
 
 ```bash
@@ -35,11 +45,20 @@ export SRC_VKS_PVC=my-test-pvc
 export REGISTER_NAME=vc-fcd-migration
 export DST_SUP_PVC=migrated-cross-supervisor-pvc
 export DST_VKS_PV=migrated-cross-vcenter-pv
-export DST_VKS_PVC=migrated-cross-vcenter-pvc
+export DST_VKS_PVC="$SRC_VKS_PVC"
 export SUP_SNAPSHOT_CLASS=volumesnapshotclass-delete
 
 export BACKUP_NAME="vks-cross-vcenter-${SRC_VKS_NS}"
 export RESTORE_NAME="vks-cross-vcenter-${DST_VKS_NS}"
+```
+
+Confirm all four contexts before continuing:
+
+```bash
+vks-src cluster-info
+sup-src cluster-info
+vks-dst cluster-info
+sup-dst cluster-info
 ```
 
 ## 2. Discover the source storage chain
@@ -93,24 +112,16 @@ discover_source_volume
 
 ## 3. Quiesce the source workload
 
-Scale the application to zero or otherwise stop all writes. Confirm that no pod is using the PVC before continuing.
+Record the application replica count. Quiesce writes and record a known readable file with its contents or checksum before unmounting. Then scale the application to zero or otherwise stop all pods using the PVC, and keep them stopped through destination reader validation.
 
-Check for remaining VKS `VolumeAttachment` objects:
+Check the source VKS attachments:
 
 ```bash
-check_source_detached() {
-  local attachments
-  attachments=$(vks-src get volumeattachments \
-    -o custom-columns=NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName) || return 1
-  if printf '%s\n' "$attachments" | grep -F "$SRC_VKS_PV"; then
-    echo "ERROR: the source volume still has a VolumeAttachment" >&2
-    return 1
-  fi
-}
-check_source_detached
+vks-src get volumeattachments \
+  -o custom-columns=NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName
 ```
 
-Do not continue while the volume remains attached to a source workload.
+Continue only when the command succeeds and no row has a PV equal to `${SRC_VKS_PV}`. If a row remains, wait and rerun the command; a query error is not evidence of detachment.
 
 ## 4. Create a manifest-only Velero backup
 
@@ -128,6 +139,8 @@ velero backup describe "$BACKUP_NAME" \
   --kubeconfig "$SRC_VKS_KUBECONFIG" \
   --details
 ```
+
+Do not continue until the backup reports `Completed` and any warnings have been reviewed.
 
 The Velero backup handles application metadata only. The FCD is preserved independently by the storage workflow.
 
@@ -155,6 +168,10 @@ sup-src -n "$SRC_SUP_NS" wait \
 
 ## 6. Delete the source VKS PVC and PV
 
+This example keeps the snapshot-only preservation path; it does not require changing the source VKS PV to `Retain`. The Supervisor [snapshot admission check](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/v3.5.0/pkg/syncer/admissionhandler/validatepvc.go) can reject deletion of an RWO PVC whose Supervisor PV has reclaim policy `Delete` while a snapshot references that PVC.
+
+Rehearse the complete procedure with disposable data on the target versions. The source VKS `csi-provisioner` version, feature settings and PV finalizers determine whether explicit PV deletion can finish while Supervisor PVC deletion is blocked. If the command below times out, stop and inspect the source PV and CSI errors; do not remove the snapshot or strip finalizers to make it finish.
+
 ```bash
 remove_source_vks_volume() {
   vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" \
@@ -180,9 +197,11 @@ export HELPER_VM="${SRC_FCD_UUID}-migrator"
 
 create_helper_vm() {
   local fcd_info
-  fcd_info=$(govc disk.ls -json "$SRC_FCD_UUID") || return 1
+  FCD_BACKING_ID=$(govc volume.ls -L "$SRC_FCD_UUID") || return 1
+  test -n "$FCD_BACKING_ID" || return 1
+  fcd_info=$(govc disk.ls -json "$FCD_BACKING_ID") || return 1
   FCD_PATH=$(printf '%s\n' "$fcd_info" |
-    jq -er '.objects[0].config.backing.filePath | select(type == "string" and length > 0)') || return 1
+    jq -er '.objects | select(length == 1) | .[0].config.backing.filePath | select(type == "string" and length > 0)') || return 1
   export FCD_PATH
 
   printf 'FCD backing path: %s\n' "$FCD_PATH"
@@ -202,7 +221,7 @@ create_helper_vm() {
 create_helper_vm
 ```
 
-The helper VM must remain powered off. Do not allow a guest OS to mount or modify the disk.
+Check `govc vm.info "$HELPER_VM"` and the device output above: the helper must be powered off and its only disk must have the recorded `${FCD_PATH}`. Do not let a guest OS mount the disk. If creation or attachment fails, inspect the helper before retrying.
 
 ## 8. Perform the cross-vCenter migration
 
@@ -214,7 +233,7 @@ During migration:
 - Ensure the required destination storage policy is assigned to the VM and FCD.
 - Do not power on the helper VM.
 
-After migration, configure `govc` for the destination vCenter and rediscover the FCD:
+After migration, configure `govc` for the destination vCenter **and destination datastore**. Update or unset source datacenter/resource-pool defaults before inspecting the migrated helper:
 
 ```bash
 # Re-export GOVC_URL, GOVC_USERNAME, GOVC_PASSWORD and related settings
@@ -224,16 +243,21 @@ govc vm.info "$HELPER_VM"
 govc device.info -vm "$HELPER_VM"
 ```
 
-Set the destination FCD UUID. In validated testing this was the same as the source UUID, but always verify it rather than assuming:
+Inspect the migrated disk's ID and backing path:
 
 ```bash
-export DEST_FCD_UUID="$SRC_FCD_UUID"
-
-govc disk.ls -json "$DEST_FCD_UUID" | jq -e . >/dev/null
-printf 'Destination FCD UUID: %s\n' "$DEST_FCD_UUID"
+govc device.info -json -vm "$HELPER_VM" 'disk-*' \
+  | jq '.devices[] | {name, id: .vDiskId.id, path: .backing.fileName}'
 ```
 
-If the UUID differs, use the UUID discovered on the destination vCenter in all subsequent commands.
+There must be exactly one disk. Record its nonempty `id` below after comparing the VM and backing path with the completed migration task. Do not assume the source UUID remained unchanged.
+
+```bash
+export DEST_FCD_UUID='<destination-disk-id>'
+govc disk.ls -l "$DEST_FCD_UUID"
+```
+
+Stop if the query fails or the disk does not match the migrated helper.
 
 ## 9. Verify destination storage-policy compatibility
 
@@ -250,30 +274,24 @@ Registration may fail or produce an unusable PVC if these mappings are incorrect
 
 Detach the FCD from the powered-off helper VM before registering it or starting the destination workload. Keep `govc` configured for the destination vCenter and the datastore containing the migrated FCD.
 
-Identify the FCD backing path and compare it with the helper VM's disk devices:
+Inspect the helper and the FCD backing path:
 
 ```bash
+govc vm.info "$HELPER_VM"
 govc disk.ls -L "$DEST_FCD_UUID"
 govc device.info -vm "$HELPER_VM" 'disk-*'
 ```
 
-Replace `<confirmed-device-name>` below with the device whose backing file matches the migrated FCD. Do not assume that the first disk belongs to this migration. Inspect the selected device again before removing it:
+Continue only if the helper is powered off and its only disk matches the recorded destination ID and backing path. Set its device name from the output; do not assume the first disk is correct.
 
 ```bash
 export HELPER_DISK_DEVICE='<confirmed-device-name>'
-govc device.info -vm "$HELPER_VM" "$HELPER_DISK_DEVICE"
-```
-
-Once the backing file matches, detach that device with `-keep` to preserve its files:
-
-```bash
 govc device.remove -vm "$HELPER_VM" -keep "$HELPER_DISK_DEVICE"
-
-govc device.ls -vm "$HELPER_VM"
+govc device.info -vm "$HELPER_VM" 'disk-*'
 govc disk.ls -l "$DEST_FCD_UUID"
 ```
 
-Confirm that the selected device is no longer listed on the helper VM and that the FCD remains present. Do not continue if either check fails. Keep the helper VM until destination validation is complete.
+Stop on any failed command. Continue only when the helper has no disks and the FCD still resolves. Keep the empty helper until destination validation is complete.
 
 ## 11. Register the FCD with the destination Supervisor
 
@@ -301,50 +319,28 @@ Inspect registration status and any reported error:
 sup-dst -n "$DST_SUP_NS" get \
   "cnsregistervolume/${REGISTER_NAME}" \
   -o yaml
-
-sup-dst -n "$DST_SUP_NS" get \
-  "cnsregistervolume/${REGISTER_NAME}" \
-  -o jsonpath='{.status.error}{"\n"}'
 ```
 
 ## 12. Discover the destination Supervisor PV and volume size
 
+The registration YAML above must show `registered: true` with no error. Then wait for the claim and inspect the resulting PV:
+
 ```bash
-verify_destination_volume() {
-  DST_SUP_PV=$(
-    sup-dst -n "$DST_SUP_NS" get pvc "$DST_SUP_PVC" \
-      -o jsonpath='{.spec.volumeName}'
-  ) || return 1
-  test -n "$DST_SUP_PV" || { echo "ERROR: destination PVC has no bound PV" >&2; return 1; }
-
-  DST_SIZE=$(
-    sup-dst get pv "$DST_SUP_PV" \
-      -o jsonpath='{.spec.capacity.storage}'
-  ) || return 1
-
-  REGISTERED_FCD_UUID=$(
-    sup-dst get pv "$DST_SUP_PV" \
-      -o jsonpath='{.spec.csi.volumeHandle}'
-  ) || return 1
-
-  test -n "$DEST_FCD_UUID" && test "$REGISTERED_FCD_UUID" = "$DEST_FCD_UUID" && test -n "$DST_SIZE" || {
-    echo "ERROR: destination FCD identity differs or volume size is empty" >&2
-    return 1
-  }
-  export DST_SUP_PV DST_SIZE REGISTERED_FCD_UUID
-
-  printf '%-24s %s\n' \
-    'Destination Supervisor PVC:' "$DST_SUP_NS/$DST_SUP_PVC" \
-    'Destination Supervisor PV:' "$DST_SUP_PV" \
-    'Registered FCD UUID:' "$REGISTERED_FCD_UUID" \
-    'Registered size:' "$DST_SIZE"
-}
-verify_destination_volume
+sup-dst -n "$DST_SUP_NS" wait \
+  --for=jsonpath='{.status.phase}'=Bound "pvc/${DST_SUP_PVC}" --timeout=5m
+DST_SUP_PV=$(sup-dst -n "$DST_SUP_NS" get pvc "$DST_SUP_PVC" -o jsonpath='{.spec.volumeName}')
+sup-dst get pv "$DST_SUP_PV" \
+  -o custom-columns=NAME:.metadata.name,HANDLE:.spec.csi.volumeHandle,SIZE:.spec.capacity.storage
+DST_SIZE=$(sup-dst get pv "$DST_SUP_PV" -o jsonpath='{.spec.capacity.storage}')
 ```
 
-Continue only when the function completes successfully.
+Continue only if every command succeeds, the handle equals `${DEST_FCD_UUID}`, and the size is nonempty and matches the source capacity. Object creation alone is not proof of successful registration.
 
 ## 13. Adopt the destination Supervisor PVC in VKS
+
+Continue only after Step 12 confirms registration and a `Bound` Supervisor PVC referencing the migrated FCD. The VKS `volumeHandle` is that Supervisor PVC name, not the FCD UUID.
+
+The destination application namespace `${DST_VKS_NS}` must already exist (the default `default` namespace does). Create it first if using a new namespace.
 
 ```bash
 vks-dst apply -f - <<EOF_DEST_VOLUME
@@ -410,9 +406,11 @@ velero restore describe "$RESTORE_NAME" \
   --details
 ```
 
-For Helm- or GitOps-managed applications, reconstructing the application from its original source of truth may be preferable. Verify that restored workloads reference `${DST_VKS_PVC}` where required.
+Keep restored workloads scaled to zero through reader validation. The destination PVC name defaults to the source name; update workload claim references only if deliberately renaming it. For Helm or GitOps workloads, restore from that source of truth if preferred.
 
 ## 15. Mount the volume and validate the migrated data
+
+Replace `/data/migration-test.txt` in both reader commands below with the known file recorded in Step 3; this example does not create a test file.
 
 The sample reader runs as UID/GID 1000; adjust these values if the existing data requires a different identity. It mounts the volume read-only and omits `fsGroup` to avoid requesting ownership changes to migrated data.
 
@@ -447,6 +445,7 @@ spec:
     - name: data
       persistentVolumeClaim:
         claimName: ${DST_VKS_PVC}
+        readOnly: true
 EOF_READER
 
 vks-dst -n "$DST_VKS_NS" wait \
@@ -458,7 +457,13 @@ vks-dst -n "$DST_VKS_NS" exec cross-vcenter-migration-reader -- \
   cat /data/migration-test.txt
 ```
 
-Validate application-level consistency before accepting the migration.
+Compare the file with the recorded source contents or checksum, then remove the reader before restarting application writers:
+
+```bash
+vks-dst -n "$DST_VKS_NS" delete pod cross-vcenter-migration-reader --timeout=5m
+```
+
+Restore the recorded application replica count and validate application-level consistency before accepting the migration.
 
 ## 16. Remove the helper VM
 
@@ -470,15 +475,29 @@ sup-dst -n "$DST_SUP_NS" get pvc "$DST_SUP_PVC"
 govc device.info -vm "$HELPER_VM"
 ```
 
-The migrated FCD must already be detached. Detach any other disks you intend to preserve with `govc device.remove -keep` before deleting the VM; `govc vm.destroy` deletes disks that remain attached.
+The migrated FCD must already be detached. The cleanup guard requires a uniquely identified, powered-off helper with no disks; `govc vm.destroy` deletes disks that remain attached.
 
 ```bash
-govc vm.destroy "$HELPER_VM"
+destroy_empty_helper() {
+  local vm_json devices_json
+  vm_json=$(govc vm.info -json "$HELPER_VM") || return 1
+  printf '%s\n' "$vm_json" | jq -e --arg name "$HELPER_VM" '
+    .virtualMachines | length == 1 and
+    (.[0].name == $name and .[0].runtime.powerState == "poweredOff")
+  ' >/dev/null || return 1
+  devices_json=$(govc device.info -json -vm "$HELPER_VM" 'disk-*') || return 1
+  printf '%s\n' "$devices_json" | jq -se 'length == 1 and (.[0] | has("devices") and (.devices == null or .devices == []))' >/dev/null || {
+    echo 'ERROR: helper still has a disk; do not destroy it' >&2
+    return 1
+  }
+  govc vm.destroy "$HELPER_VM" || return 1
+}
+destroy_empty_helper
 ```
 
 ## 17. Source cleanup
 
-Complete source cleanup only after destination validation and migration acceptance.
+Complete source cleanup only after destination validation and migration acceptance. Confirm that source VKS PV deletion completed; do not use snapshot cleanup to unblock a still-pending source volume deletion.
 
 The source Supervisor may retain stale Kubernetes objects after the FCD has moved. First try normal deletion:
 
@@ -500,27 +519,13 @@ sup-src -n "$SRC_SUP_NS" get volumesnapshot "$SUP_SNAPSHOT" \
   -o jsonpath='{.metadata.finalizers}{"\n"}'
 ```
 
-As a last-resort cleanup step, remove the finalizers and delete the object:
-
-```bash
-cleanup_stale_source_objects() {
-  sup-src -n "$SRC_SUP_NS" patch volumesnapshot "$SUP_SNAPSHOT" \
-    --type=json \
-    -p='[{"op":"remove","path":"/metadata/finalizers"}]' || return 1
-
-  cleanup_source_objects
-}
-cleanup_stale_source_objects
-```
-
-> [!WARNING]
-> Removing finalizers bypasses controller cleanup. Use it only after confirming that the FCD has been migrated successfully and that the remaining source objects are stale metadata.
-
+If normal cleanup fails, inspect the snapshot's associated `VolumeSnapshotContent` and controller errors with the Supervisor administrator. Do not remove all finalizers as a routine step: that bypasses controller cleanup and can leave snapshot content or storage metadata behind.
 
 ## Validation checklist
 
 - [ ] Source workload was quiesced and manifest-only Velero backup completed.
 - [ ] Source VKS PV, Supervisor PVC, Supervisor PV and FCD UUID were recorded.
+- [ ] Source VKS PV was removed while the snapshot preserved the Supervisor storage chain.
 - [ ] FCD was attached to a powered-off helper VM before cross-vCenter migration.
 - [ ] Destination FCD UUID was rediscovered and verified after vMotion.
 - [ ] Destination storage policy/datastore compatibility was verified.

@@ -7,7 +7,7 @@ The examples assume a filesystem volume with `ReadWriteOnce` access. Adjust `vol
 
 Run one numbered step at a time in an interactive Bash or zsh shell. Guarded steps use named functions so a failed check stops that function without explicitly exiting your shell. Do not continue to later steps after an error. See the [execution guidance](README.md#running-the-commands), including the caveat for shells that already enable `set -e`.
 
-This example migrates a persistent volume between VKS clusters on the **same vCenter**, where both clusters use the **same Supervisor namespace**. The existing Supervisor PVC remains the VKS-facing storage identity, and a Supervisor `VolumeSnapshot` protects the backing volume while the source VKS objects are replaced.
+This example migrates a persistent volume between VKS clusters on the **same vCenter**, where both clusters use the **same Supervisor namespace**. The existing Supervisor PVC remains the VKS-facing storage identity, and a Supervisor `VolumeSnapshot` protects it during source VKS teardown. Verify this behavior on the target versions before migrating real workloads.
 
 > [!IMPORTANT]
 > Use this procedure only when the source and destination VKS clusters use the same Supervisor namespace. For different Supervisor namespaces, use [Example 2](2-same-supervisor-different-namespace.md).
@@ -43,7 +43,7 @@ export DST_SUP_NS="$SRC_SUP_NS"
 
 export SRC_VKS_PVC=my-test-pvc
 export DST_VKS_PV=my-test-pv-migrated
-export DST_VKS_PVC=my-test-pvc-migrated
+export DST_VKS_PVC="$SRC_VKS_PVC"
 
 export SUP_SNAPSHOT_CLASS=volumesnapshotclass-delete
 
@@ -61,7 +61,7 @@ vks-dst cluster-info
 
 ## 2. Create a test volume and write identifiable data
 
-Skip this step when migrating an existing workload.
+Skip this step when migrating an existing workload; choose a known readable file for destination validation and record its contents or checksum after quiescing writes.
 
 ```bash
 vks-src -n "$SRC_VKS_NS" apply -f - <<EOF_PVC
@@ -169,12 +169,7 @@ discover_source_volume() {
       -o jsonpath='{.spec.storageClassName}'
   ) || return 1
 
-  SUP_ACCESS_MODE=$(
-    sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
-      -o jsonpath='{.spec.accessModes[0]}'
-  ) || return 1
-
-  export SRC_VKS_PV VKS_PVC_SIZE SUP_PVC SUP_PV FCD_UUID SUP_STORAGE_CLASS SUP_ACCESS_MODE
+  export SRC_VKS_PV VKS_PVC_SIZE SUP_PVC SUP_PV FCD_UUID SUP_STORAGE_CLASS
 
   printf '%-22s %s\n' \
     'VKS PVC:' "$SRC_VKS_NS/$SRC_VKS_PVC" \
@@ -212,24 +207,16 @@ vks-src -n "$SRC_VKS_NS" delete pod migration-test-writer \
   --wait=true --timeout=5m
 ```
 
-For a Deployment or StatefulSet, scale it to zero instead.
+For a Deployment or StatefulSet, record its replica count and scale it to zero instead. Keep it stopped until destination data validation is complete.
 
-Check for remaining VKS `VolumeAttachment` objects:
+Check the source VKS attachments:
 
 ```bash
-check_source_detached() {
-  local attachments
-  attachments=$(vks-src get volumeattachments \
-    -o custom-columns=NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName) || return 1
-  if printf '%s\n' "$attachments" | grep -F "$SRC_VKS_PV"; then
-    echo "ERROR: the source volume still has a VolumeAttachment" >&2
-    return 1
-  fi
-}
-check_source_detached
+vks-src get volumeattachments \
+  -o custom-columns=NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName
 ```
 
-Do not continue while the source volume remains attached to a running workload.
+Continue only when the command succeeds and no row has a PV equal to `${SRC_VKS_PV}`. If a row remains, wait and rerun the command; a query error is not evidence of detachment.
 
 ## 5. Create a manifest-only Velero backup
 
@@ -284,6 +271,10 @@ sup-src -n "$SRC_SUP_NS" get volumesnapshot "$SUP_SNAPSHOT" -o wide
 
 ## 7. Delete the source VKS PVC and PV
 
+This example keeps the snapshot-only preservation path; it does not require changing the source VKS PV to `Retain`. The Supervisor [snapshot admission check](https://github.com/kubernetes-sigs/vsphere-csi-driver/blob/v3.5.0/pkg/syncer/admissionhandler/validatepvc.go) can reject deletion of an RWO PVC whose Supervisor PV has reclaim policy `Delete` while a snapshot references that PVC.
+
+Rehearse the complete procedure with disposable data on the target versions. The source VKS `csi-provisioner` version, feature settings and PV finalizers determine whether explicit PV deletion can finish while Supervisor PVC deletion is blocked. If the command below times out, stop and inspect the source PV and CSI errors; do not remove the snapshot or strip finalizers to make it finish.
+
 ```bash
 remove_source_vks_volume() {
   vks-src -n "$SRC_VKS_NS" delete pvc "$SRC_VKS_PVC" \
@@ -295,36 +286,24 @@ remove_source_vks_volume() {
 remove_source_vks_volume
 ```
 
-The Supervisor PVC/PV/FCD chain must remain because the snapshot still references the volume.
+The Supervisor PVC/PV/FCD chain should remain; verify it before creating destination storage.
 
-Verify it:
+Verify the preserved binding:
 
 ```bash
-verify_preserved_volume() {
-  unset DEST_VOLUME_HANDLE
-  sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" || return 1
-  sup-src get pv "$SUP_PV" || return 1
-
-  CURRENT_FCD_UUID=$(
-    sup-src get pv "$SUP_PV" \
-      -o jsonpath='{.spec.csi.volumeHandle}'
-  ) || return 1
-
-  test -n "$FCD_UUID" && test "$CURRENT_FCD_UUID" = "$FCD_UUID" || {
-    echo "ERROR: FCD identity changed" >&2
-    return 1
-  }
-
-  export DEST_VOLUME_HANDLE="$SUP_PVC"
-}
-verify_preserved_volume
+sup-src -n "$SRC_SUP_NS" get pvc "$SUP_PVC" \
+  -o custom-columns=NAME:.metadata.name,PV:.spec.volumeName,PHASE:.status.phase,DELETING:.metadata.deletionTimestamp
+sup-src get pv "$SUP_PV" \
+  -o custom-columns=NAME:.metadata.name,HANDLE:.spec.csi.volumeHandle,DELETING:.metadata.deletionTimestamp
 ```
 
-Continue to the destination VKS reconstruction below.
+Continue only if the PVC is `Bound` to `${SUP_PV}`, the PV handle equals `${FCD_UUID}`, and both `DELETING` columns show `<none>`. A terminating PVC is not reusable. Do not remove finalizers to force this check to pass.
 
 ## 8. Create the destination VKS PV and PVC
 
 For this workflow, the VKS PV `volumeHandle` is the existing Supervisor PVC `${SUP_PVC}`.
+
+The destination application namespace `${DST_VKS_NS}` must already exist (the default `default` namespace does). Create it first if using a new namespace.
 
 ```bash
 vks-dst apply -f - <<EOF_DEST_VOLUME
@@ -346,7 +325,7 @@ spec:
   csi:
     driver: csi.vsphere.vmware.com
     fsType: ext4
-    volumeHandle: "${DEST_VOLUME_HANDLE}"
+    volumeHandle: "${SUP_PVC}"
     volumeAttributes:
       type: "vSphere CNS Block Volume"
 ---
@@ -390,7 +369,7 @@ velero restore describe "$RESTORE_NAME" \
   --details
 ```
 
-If the application is managed by Helm, GitOps or another package manager, reconstructing the application from that source of truth may be preferable. In either case, verify that restored workloads reference `${DST_VKS_PVC}` where the destination claim name differs.
+Keep restored workloads scaled to zero through reader validation. The destination PVC name defaults to the source name so workload claim references still match; if you deliberately rename it, update those references before starting the application. For Helm or GitOps workloads, restore from that source of truth if preferred.
 
 ## 10. Mount the migrated volume and verify the data
 
@@ -427,6 +406,7 @@ spec:
     - name: data
       persistentVolumeClaim:
         claimName: ${DST_VKS_PVC}
+        readOnly: true
 EOF_READER
 
 vks-dst -n "$DST_VKS_NS" wait \
@@ -438,7 +418,7 @@ vks-dst -n "$DST_VKS_NS" exec migration-test-reader -- \
   cat /data/migration-test.txt
 ```
 
-The output should match the content written on the source cluster.
+The output should match the content written on the source cluster. For an existing workload, replace `/data/migration-test.txt` in the reader with the file recorded before migration.
 
 ## 11. Cleanup after validation
 
@@ -448,20 +428,18 @@ Delete the test reader after validation:
 vks-dst -n "$DST_VKS_NS" delete pod migration-test-reader --timeout=5m
 ```
 
-Retain the snapshot until the migrated workload has been validated and rollback is no longer required:
+After removing the reader, restore the recorded application replica count and validate the application. Retain the snapshot until rollback is no longer required. Before deleting it, confirm that source VKS PV deletion completed and no source deletion retries remain: removing snapshot protection can otherwise allow a pending delete to affect the adopted Supervisor PVC.
 
 ```bash
 sup-src -n "$SRC_SUP_NS" delete volumesnapshot "$SUP_SNAPSHOT" --timeout=5m
 ```
-
-
 
 ## Validation checklist
 
 - [ ] Source workload was quiesced before storage metadata was changed.
 - [ ] VKS PV, Supervisor PVC, Supervisor PV and FCD UUID were recorded.
 - [ ] Supervisor snapshot reached `readyToUse: true` before source VKS storage objects were removed.
-- [ ] Existing Supervisor PVC/PV/FCD chain survived source VKS teardown.
+- [ ] Source VKS PV was removed; Supervisor PVC/PV remain bound and are not terminating.
 - [ ] Destination VKS PV uses the existing Supervisor PVC name as `volumeHandle`.
 - [ ] Destination VKS PVC is `Bound`.
 - [ ] Migrated data and application behaviour were validated before snapshot cleanup.

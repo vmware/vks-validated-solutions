@@ -59,7 +59,7 @@ export DST_SUP_NS=migration-target
 
 export SRC_VKS_PVC=my-test-pvc
 export DST_VKS_PV=my-test-pv-migrated
-export DST_VKS_PVC=my-test-pvc-migrated
+export DST_VKS_PVC="$SRC_VKS_PVC"
 
 export DST_SUP_PVC=my-test-pvc-migrated-supervisor
 export REGISTER_NAME=same-vcenter-fcd-migration
@@ -93,12 +93,11 @@ Confirm that each context points to the expected cluster before continuing:
 vks-src cluster-info
 sup-src cluster-info
 vks-dst cluster-info
-sup-dst cluster-info
 ```
 
 ## 2. Create a test volume and write identifiable data
 
-Skip this step when migrating an existing workload.
+Skip this step when migrating an existing workload; choose a known readable file for destination validation and record its contents or checksum after quiescing writes.
 
 ```bash
 vks-src -n "$SRC_VKS_NS" apply -f - <<EOF_PVC
@@ -247,29 +246,16 @@ vks-src -n "$SRC_VKS_NS" delete pod migration-test-writer \
   --wait=true --timeout=5m
 ```
 
-For a Deployment or StatefulSet, scale it to zero instead.
+For a Deployment or StatefulSet, record its replica count and scale it to zero instead. Keep it stopped until destination data validation is complete.
 
-Wait for the VKS attachment to disappear before attaching the disk to the helper VM:
+Check the source VKS attachments before attaching the disk to the helper VM:
 
 ```bash
-wait_for_source_detach() {
-  local attachments remaining deadline=$((SECONDS + 300))
-  while (( SECONDS < deadline )); do
-    attachments=$(vks-src get volumeattachments -o json --request-timeout=15s) || return 1
-    remaining=$(printf '%s\n' "$attachments" | jq -er --arg pv "$SRC_VKS_PV" \
-      '[.items[] | select(.spec.source.persistentVolumeName == $pv)] | length') || return 1
-    if [ "$remaining" = 0 ]; then
-      return 0
-    fi
-    sleep 5
-  done
-  echo 'ERROR: source volume is still attached; do not attach the helper disk' >&2
-  return 1
-}
-wait_for_source_detach
+vks-src get volumeattachments \
+  -o custom-columns=NAME:.metadata.name,PV:.spec.source.persistentVolumeName,NODE:.spec.nodeName
 ```
 
-Do not continue while the source volume remains attached to a running workload.
+Continue only when the command succeeds and no row has a PV equal to `${SRC_VKS_PV}`. If a row remains, wait and rerun the command; a query error is not evidence of detachment.
 
 ## 5. Create a manifest-only Velero backup
 
@@ -294,9 +280,6 @@ Do not continue until the backup reports `Completed` and any warnings have been 
 
 > [!IMPORTANT]
 > This Velero backup protects application manifests and metadata only. Persistent data is preserved by the storage workflow below.
-
-
-
 
 A Supervisor PVC is namespace-scoped and a Supervisor PV is cluster-scoped. A second PVC in another namespace cannot bind to the existing PV while that PV still contains the source PVC `claimRef`. The `CnsRegisterVolume` controller also refuses to create another Supervisor PV for an FCD whose volume ID is already represented by an existing Supervisor PV.
 
@@ -563,19 +546,13 @@ detach_helper_disk() {
     ') || return 1
   govc device.remove -vm "$HELPER_VM" -keep "$HELPER_DISK_DEVICE" || return 1
   devices_json=$(govc device.info -json -vm "$HELPER_VM" 'disk-*') || return 1
-  printf '%s\n' "$devices_json" | jq -e 'has("devices") and ((.devices // []) | length == 0)' >/dev/null || {
+  printf '%s\n' "$devices_json" | jq -se 'length == 1 and (.[0] | has("devices") and (.devices == null or .devices == []))' >/dev/null || {
     echo 'ERROR: helper still has a disk after detachment' >&2
     return 1
   }
   govc disk.ls -l "$FCD_BACKING_ID" || return 1
 }
 detach_helper_disk
-```
-
-Verify that the retained FCD still exists:
-
-```bash
-govc disk.ls -l "$FCD_BACKING_ID"
 ```
 
 The helper VM can be removed after the migration has been validated.
@@ -606,13 +583,7 @@ sup-dst -n "$DST_SUP_NS" wait \
   --timeout=10m
 ```
 
-Inspect the result. Object creation alone does not confirm successful registration:
-
-```bash
-sup-dst -n "$DST_SUP_NS" get \
-  "cnsregistervolume/${REGISTER_NAME}" \
-  -o yaml
-```
+Object creation alone does not confirm successful registration.
 
 Verify registration, discover the new Supervisor PV, and confirm that the destination PVC is `Bound` to the retained FCD. Set the destination handle only after these checks pass:
 
@@ -647,6 +618,8 @@ The VKS volume handle is now the new Supervisor PVC name, not the FCD UUID.
 ## 13. Create the destination VKS PV and PVC
 
 For this workflow, the VKS PV `volumeHandle` is the newly registered destination Supervisor PVC **name** `${DST_SUP_PVC}` in `${DST_SUP_NS}`. Do not put the FCD UUID here: that UUID is used by `CnsRegisterVolume` and the Supervisor PV. Continue only after Step 12 confirms successful registration and a `Bound` destination Supervisor PVC.
+
+The destination application namespace `${DST_VKS_NS}` must already exist (the default `default` namespace does). Create it first if using a new namespace.
 
 ```bash
 vks-dst apply -f - <<EOF_DEST_VOLUME
@@ -712,7 +685,7 @@ velero restore describe "$RESTORE_NAME" \
   --details
 ```
 
-If the application is managed by Helm, GitOps or another package manager, reconstructing the application from that source of truth may be preferable. In either case, verify that restored workloads reference `${DST_VKS_PVC}` where the destination claim name differs.
+Keep restored workloads scaled to zero through reader validation. The destination PVC name defaults to the source name so workload claim references still match; if you deliberately rename it, update those references before starting the application. For Helm or GitOps workloads, restore from that source of truth if preferred.
 
 ## 15. Mount the migrated volume and verify the data
 
@@ -761,7 +734,7 @@ vks-dst -n "$DST_VKS_NS" exec migration-test-reader -- \
   cat /data/migration-test.txt
 ```
 
-The output should match the content written on the source cluster.
+The output should match the content written on the source cluster. For an existing workload, replace `/data/migration-test.txt` in the reader with the file recorded before migration.
 
 ## 16. Cleanup after validation
 
@@ -771,7 +744,7 @@ Delete the test reader after validation:
 vks-dst -n "$DST_VKS_NS" delete pod migration-test-reader --timeout=5m
 ```
 
-There is no migration snapshot or retained source Supervisor PV to remove. After the migrated workload has been validated, remove the powered-off helper VM if it is no longer required:
+After removing the reader, restore the recorded application replica count and validate the application. There is no migration snapshot or retained source Supervisor PV to remove. After the migrated workload has been validated, remove the powered-off helper VM if it is no longer required:
 
 ```bash
 destroy_empty_helper() {
@@ -782,7 +755,7 @@ destroy_empty_helper() {
     (.[0].name == $name and .[0].runtime.powerState == "poweredOff")
   ' >/dev/null || return 1
   devices_json=$(govc device.info -json -vm "$HELPER_VM" 'disk-*') || return 1
-  printf '%s\n' "$devices_json" | jq -e 'has("devices") and ((.devices // []) | length == 0)' >/dev/null || {
+  printf '%s\n' "$devices_json" | jq -se 'length == 1 and (.[0] | has("devices") and (.devices == null or .devices == []))' >/dev/null || {
     echo 'ERROR: helper still has a disk; do not destroy it' >&2
     return 1
   }
