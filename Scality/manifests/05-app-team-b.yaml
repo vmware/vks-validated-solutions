@@ -1,0 +1,25 @@
+# Team B uses the Retain class, as in the validation run: its bucket stays on RING after clean-up.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-team-b
+---
+kind: BucketClaim
+apiVersion: objectstorage.k8s.io/v1alpha1
+metadata:
+  name: app-bucket-b
+  namespace: app-team-b
+spec:
+  bucketClassName: scality-retain
+  protocols: [s3]
+---
+kind: BucketAccess
+apiVersion: objectstorage.k8s.io/v1alpha1
+metadata:
+  name: app-access-b
+  namespace: app-team-b
+spec:
+  bucketClaimName: app-bucket-b
+  bucketAccessClassName: scality-key
+  credentialsSecretName: app-bucket-b-creds
+  protocol: s3

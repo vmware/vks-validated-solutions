@@ -1,0 +1,29 @@
+kind: BucketClass
+apiVersion: objectstorage.k8s.io/v1alpha1
+metadata:
+  name: scality-delete
+driverName: cosi.scality.com
+deletionPolicy: Delete
+parameters:
+  objectStorageSecretName: scality-ring-cosi
+  objectStorageSecretNamespace: container-object-storage-system
+---
+kind: BucketClass
+apiVersion: objectstorage.k8s.io/v1alpha1
+metadata:
+  name: scality-retain
+driverName: cosi.scality.com
+deletionPolicy: Retain
+parameters:
+  objectStorageSecretName: scality-ring-cosi
+  objectStorageSecretNamespace: container-object-storage-system
+---
+kind: BucketAccessClass
+apiVersion: objectstorage.k8s.io/v1alpha1
+metadata:
+  name: scality-key
+driverName: cosi.scality.com
+authenticationType: KEY
+parameters:
+  objectStorageSecretName: scality-ring-cosi
+  objectStorageSecretNamespace: container-object-storage-system

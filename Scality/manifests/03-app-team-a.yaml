@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-team-a
+---
+kind: BucketClaim
+apiVersion: objectstorage.k8s.io/v1alpha1
+metadata:
+  name: app-bucket
+  namespace: app-team-a
+spec:
+  bucketClassName: scality-delete
+  protocols: [s3]
+---
+kind: BucketAccess
+apiVersion: objectstorage.k8s.io/v1alpha1
+metadata:
+  name: app-access
+  namespace: app-team-a
+spec:
+  bucketClaimName: app-bucket
+  bucketAccessClassName: scality-key
+  credentialsSecretName: app-bucket-creds
+  protocol: s3

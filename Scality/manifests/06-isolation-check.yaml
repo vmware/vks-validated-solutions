@@ -1,0 +1,39 @@
+# Isolation check: team B's credentials must not list team A's bucket.
+# Replace <TEAM_A_BUCKET> with the output of:
+#   kubectl get bucket $(kubectl -n app-team-a get bucketclaim app-bucket -o jsonpath='{.status.bucketName}') -o jsonpath='{.status.bucketID}'
+# Apply with: kubectl -n app-team-b apply -f 06-isolation-check.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: isolation-check
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: check
+      image: public.ecr.aws/aws-cli/aws-cli:2.17.0
+      env:
+        - {name: HOME, value: /tmp}
+        - {name: OTHER_BUCKET, value: "<TEAM_A_BUCKET>"}
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          INFO=$(cat /cosi/BucketInfo)
+          get() { echo "$INFO" | grep -o "\"$1\": *\"[^\"]*\"" \
+                    | head -1 | sed 's/.*: *"\(.*\)"/\1/'; }
+          export AWS_ACCESS_KEY_ID=$(get accessKeyID)
+          export AWS_SECRET_ACCESS_KEY=$(get accessSecretKey)
+          export AWS_DEFAULT_REGION=us-east-1
+          aws configure set default.s3.addressing_style path
+          if aws --endpoint-url "$(get endpoint)" s3 ls "s3://$OTHER_BUCKET/"
+          then echo "FAIL: access allowed"
+          else echo "OK: access denied"
+          fi
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: {drop: [ALL]}
+      volumeMounts: [{name: cosi, mountPath: /cosi, readOnly: true}]
+  volumes: [{name: cosi, secret: {secretName: app-bucket-b-creds}}]
